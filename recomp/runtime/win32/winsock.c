@@ -11,6 +11,8 @@
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <ifaddrs.h>
+#include <net/if.h>
 
 #define INVALID_SOCKET_ 0xffffffffu
 #define SOCKET_ERROR_ 0xffffffffu
@@ -91,22 +93,43 @@ IMPL(wsock32, ord3)                                     /* closesocket(s) */
 IMPL(wsock32, ord2)                                     /* bind(s, addr, len) */
 {
     SOCK(ARG(0), 3); struct sockaddr_in a; if (!to_host(ARG(1), ARG(2), &a)) RET(fail(c, 10014), 3);
+    if (getenv("W32_NETLOG")) { char ip[32]; inet_ntop(AF_INET, &a.sin_addr, ip, sizeof ip); fprintf(stderr, "net: bind %x to %s:%u (fd %d)\n", ARG(0), ip, ntohs(a.sin_port), fd); }
     if (bind(fd, (struct sockaddr *)&a, sizeof a)) RET(fail_errno(c), 3);
     RET(0, 3);
+}
+/* one of this Mac's own addresses (an interface's IPv4 address) */
+static int own_address(struct in_addr ia)
+{
+    struct ifaddrs *ifs = 0; int own = 0;
+    if (getifaddrs(&ifs)) return 0;
+    for (struct ifaddrs *i = ifs; i && !own; i = i->ifa_next)
+        if (i->ifa_addr && i->ifa_addr->sa_family == AF_INET && ((struct sockaddr_in *)i->ifa_addr)->sin_addr.s_addr == ia.s_addr) own = 1;
+    freeifaddrs(ifs); return own;
 }
 IMPL(wsock32, ord4)                                     /* connect(s, addr, len) */
 {
     SOCK(ARG(0), 3); struct sockaddr_in a; if (!to_host(ARG(1), ARG(2), &a)) RET(fail(c, 10014), 3);
+    /* A connection to this Mac's own LAN address (Diablo II's host joins the game it serves that way) goes through
+     * loopback: the same machine, and macOS's Local Network privacy, which can hold a connection to the LAN address
+     * until the user allows it, never applies to it. */
+    if (a.sin_addr.s_addr != htonl(INADDR_LOOPBACK) && own_address(a.sin_addr)) a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     if (getenv("W32_NETLOG")) { char ip[32]; inet_ntop(AF_INET, &a.sin_addr, ip, sizeof ip); fprintf(stderr, "net: connect %x to %s:%u (fd %d)\n", ARG(0), ip, ntohs(a.sin_port), fd); }
     if (connect(fd, (struct sockaddr *)&a, sizeof a)) RET(fail_errno(c), 3);
     RET(0, 3);
 }
-IMPL(wsock32, ord13) { SOCK(ARG(0), 2); if (listen(fd, (int)ARG(1))) RET(fail_errno(c), 2); RET(0, 2); }   /* listen */
+IMPL(wsock32, ord13)                                    /* listen(s, backlog) */
+{
+    SOCK(ARG(0), 2);
+    if (getenv("W32_NETLOG")) fprintf(stderr, "net: listen %x backlog %u (fd %d)\n", ARG(0), ARG(1), fd);
+    if (listen(fd, (int)ARG(1))) RET(fail_errno(c), 2);
+    RET(0, 2);
+}
 IMPL(wsock32, ord1)                                     /* accept(s, addr, len*) */
 {
     SOCK(ARG(0), 3); struct sockaddr_in a; socklen_t l = sizeof a;
     int n = accept(fd, (struct sockaddr *)&a, &l);
     if (n < 0) { w32_set_last_error(c, wsa_err(errno)); RET(INVALID_SOCKET_, 3); }
+    if (getenv("W32_NETLOG")) fprintf(stderr, "net: accept on %x (fd %d): fd %d\n", ARG(0), fd, n);
     int one = 1; setsockopt(n, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof one); fcntl(n, F_SETFD, FD_CLOEXEC);
     pthread_mutex_lock(&s_lock); int k = 0; while (k < MAXS && S[k].fd) k++;
     if (k < MAXS) { S[k].fd = n + 1; S[k].nb = 0; }
@@ -219,7 +242,7 @@ IMPL(wsock32, ord18)
     int ms = tv ? (int)(rt_r32(G_MEM, tv) * 1000 + rt_r32(G_MEM, tv + 4) / 1000) : -1;
     int r = poll(pf, (nfds_t)n, ms);
     if (r < 0) RET(fail_errno(c), 5);
-    if (getenv("W32_NETLOG") && atoi(getenv("W32_NETLOG")) > 1) for (int i = 0; i < n; i++) fprintf(stderr, "net: select %x events %x revents %x\n", who[i], pf[i].events, pf[i].revents);
+    if (getenv("W32_NETLOG") && atoi(getenv("W32_NETLOG")) > 1) for (int i = 0; i < n; i++) fprintf(stderr, "net: select %x (fd %d) events %x revents %x, timeout %d ms\n", who[i], pf[i].fd, pf[i].events, pf[i].revents, ms);
     uint32_t total = 0;
     for (int k = 0; k < 3; k++) {
         if (!sets[k]) continue;
