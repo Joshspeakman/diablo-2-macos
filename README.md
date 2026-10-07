@@ -5,22 +5,44 @@ run on Metal and Core Audio, the way [dungeon-siege-macos](https://github.com/Jo
 dungeon-siege-2-macos do for the Dungeon Siege games. No Wine, no Rosetta, no emulator. Nothing from the game is in
 this repository: the build regenerates everything locally from your copy, and the game folder is only read.
 
-**State: Beta 1.** The game is playable natively:
+**State: Beta 2.** The game is playable natively:
 
 - the Blizzard intro and the cinematics (Bink, with sound), the title, the menus;
 - single player: new characters of every class, all five acts (their towns and waypoints), every class's skills, the
   HUD, dialogue with speech, saving and loading;
 - TCP/IP games (Other Multiplayer → TCP/IP): host on this Mac, join from another, play together;
-- the game's own DirectDraw renderer (default) or its windowed mode, both drawing the original 8-bit pictures, shown
-  with a choice of scaling filters (sharp pixels, smooth, nearest, CRT scanlines);
-- the game's Direct3D renderer on Metal, with both of its views: Isometric (the classic flat view) and Perspective (the
-  ground tilting away toward the horizon), at the original 800×600 or drawn at the display's resolution, with the
-  original sharp textures or smooth (filtered) ones, at 60, 120 or the display's frame rate with movement blended
-  between the game's 25 ticks a second, and as wide as the display (16:10, 16:9, ultra-wide) with the interface
-  anchored to its edges;
+- all three of the game's renderers: DirectDraw (the classic 8-bit picture), its windowed mode, and Direct3D with
+  both of its views (see [Graphics](#graphics));
+- an optional remastered Direct3D picture: drawn at the display's resolution, smooth textures, 60/120 fps or the
+  display's refresh rate, and widescreen or ultra-wide, each a switch in the launch window;
 - sound through DirectSound on Core Audio: music, effects, speech.
 
 Battle.net and Open Battle.net are untested. What's next: [docs/PLAN.md](docs/PLAN.md).
+
+## Graphics
+
+Diablo II has two looks, and both are here:
+
+- **Isometric** ("2D"): the classic flat view. DirectDraw always shows it; Direct3D shows it with View → Isometric.
+- **Perspective** ("3D"): the game's Direct3D mode tilts the ground away toward the horizon, with depth as you walk.
+  Direct3D → View → Perspective (or the game's own Options → Video → Perspective).
+
+On top of the game's Direct3D renderer, the launch window's **Direct3D** group can bring the picture up to a modern
+display. Every option is off (the original) unless chosen:
+
+| Option | What it does |
+|---|---|
+| Resolution → Display | The game's triangles are drawn at the display's resolution rather than as an 800×600 picture scaled up: crisp edges, text and detail |
+| Textures → Smooth | Filtered textures (no stair-steps); sprites keep clean edges |
+| Frame Rate → 60 · 120 · Display | Frames between the game's 25 ticks a second, with movement blended between them: smooth walking, scrolling, monsters and missiles |
+| Width → Display | The display's shape (16:10, 16:9, 21:9, ...): more of the world to the sides, the interface at the screen's edges, menus kept 4:3 in the middle |
+
+A "remastered" setup: Video Direct3D, View Perspective (or Isometric), Resolution Display, Textures Smooth, Frame Rate
+Display, Width Display.
+
+Known limitations: with more frames, the picture runs up to one tick (40 ms) behind the game and character
+animations stay at 25 frames a second; in Width → Display the help screen (H) still points at its 800×600 places, and
+in multiplayer a wider view shows more than other players see.
 
 ## Install
 
@@ -153,11 +175,14 @@ recomp/tools/build_app.sh recomp/work/full           # link the app executable
 recomp/run.sh "/path/to/Diablo II"                    # play from the build (data in ~/Games/Diablo2Native)
 ```
 
-Environment for development: `DS_TEST=1` (background window, no launch window), `D2_RENDERER=ddraw|gdi|d3d`,
-`D2_PERSPECTIVE=on|off`, `D2_RESOLUTION=original|display`, `D2_TEXTURES=sharp|smooth`, `D2_FPS=<n>|display`, `D2_WIDTH=<n>|display`,
-`DSR_RENDER_SCALE=<1-4>`, `W32_BURST_DIR=<dir>` (tests: 12 consecutive frames when `<dir>/go` appears),
-`W32_REGLOG=1`,
-`DSR_FILTER=sharp|smooth|pixel|crt`, `W32_DDLOG=1`, `W32_NETLOG=1`, `W32_SEHLOG=1`, `W32_TRACE=<file>`,
-`W32_AUDIO_DUMP=<file.wav>`, `DS_CMDFILE=<file>` (scripted clicks, keys, typing and screenshots).
+Environment for development:
+
+- the launch window's settings: `D2_RENDERER=ddraw|gdi|d3d`, `D2_PERSPECTIVE=on|off`, `D2_RESOLUTION=original|display`,
+  `D2_TEXTURES=sharp|smooth`, `D2_FPS=<n>|display`, `D2_WIDTH=<n>|display`, `DSR_FILTER=sharp|smooth|pixel|crt`,
+  `DS_NOTCH=hide|around`;
+- testing: `DS_TEST=1` (background window, no launch window), `DS_CMDFILE=<file>` (scripted clicks, keys, typing and
+  screenshots), `W32_BURST_DIR=<dir>` (12 consecutive frames when `<dir>/go` appears), `W32_AUDIO_DUMP=<file.wav>`,
+  `DSR_RENDER_SCALE=<1-4>`;
+- logs: `W32_DDLOG=1`, `W32_REGLOG=1`, `W32_NETLOG=1`, `W32_SEHLOG=1`, `W32_TRACE=<file>`.
 
 Notices and credits: [NOTICE.md](NOTICE.md).
