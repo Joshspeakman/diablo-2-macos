@@ -1,19 +1,19 @@
 # Notices and credits
 
-**Dungeon Siege** © its respective rights holders. This project contains no part of the game. The installer recompiles
-the executable of a copy the user owns, after verifying its checksum, and the app reads the game's data from that copy.
+**Diablo II** and **Diablo II: Lord of Destruction** © Blizzard Entertainment. This project contains no part of the
+game. The installer recompiles the executable of a copy the user owns, after verifying its checksum, and the app reads
+the game's data from that copy. The launch window's art is decoded from the player's own archives at install time.
 
 Used at build time (installed into `recomp/.venv` with pip, not redistributed here):
 - **Capstone** (BSD) — disassembly for the recompiler. https://www.capstone-engine.org/
-- **Unicorn** (GPL-2.0) — x86 emulation, used only by the test suite to compare the recompiled code with the original.
-  https://www.unicorn-engine.org/
+- **Unicorn** (GPL-2.0) — x86 emulation, used only by the development harness to compare the recompiled code with
+  the original. https://www.unicorn-engine.org/
 
-Specifications and prior work this project learned from:
-- Microsoft's published Open Specifications for DirectPlay 8 ([MC-DPL8CS], [MC-DPL8R], [MC-DPLHP]), from which the
-  multiplayer's network protocol is implemented; `recomp/tests/dp8test.c` uses their example packets.
-- **SiegeFX** (GPL-3.0) and **OpenSiege** (GPL-3.0), open-source reimplementations of the engine; no code was taken
-  from them.
-- `src/dsr/dsr_snapshot.bin` records the device capabilities reported by Wine's DirectDraw implementation (Wine,
-  LGPL), so that the game sees a consistent Direct3D 7 device.
-- The launch window uses Copperplate, a font that ships with macOS (not distributed here), and draws its artwork from
-  the player's own game files at run time.
+The recompiler, runtime and renderer started from the Dungeon Siege ports (dungeon-siege-macos,
+dungeon-siege-2-macos) by the same author.
+
+Formats this project reads were implemented from public descriptions: the MPQ archive format (as documented by the
+modding community, e.g. StormLib's documentation), the DC6 sprite format, and Microsoft's DirectDraw, DirectSound,
+GDI and Winsock documentation. No code was taken from other projects. `src/dsr/dsr_snapshot.bin` records device
+capabilities reported by Wine's DirectDraw implementation (Wine, LGPL) for the Direct3D 7 path the Dungeon Siege port
+uses; Diablo II does not use it.
