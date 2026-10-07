@@ -1,90 +1,49 @@
 #!/bin/bash
-# install.sh --game-dir <Dungeon Siege II folder> [--app-dir DIR] [--data-dir DIR]
-# install.sh --gog-installer <setup_dungeon_siege_2_*.exe>   (GOG offline installer; needs: brew install innoextract)
-# install.sh --cd-key                  multiplayer: asks for the product key of your own original retail copy (25
-#                                      characters, on the sticker under disc 1; the Steam and GOG releases come without
-#                                      one) and stores what the retail installer would have derived from it (the
-#                                      "DoubleHash" the game presents to the GameSpy/OpenSpy lobby) in the data folder.
-#                                      The key itself is not stored. Without it, multiplayer stops at "Could not find a
-#                                      valid CDKey". DS2_CDKEY=<key> gives it without the prompt. The launch window
-#                                      has the same entry (Online row), and a first install offers it at the end.
-# install.sh --cd-key --reg-file <file.reg>   the same for a Windows (or Wine/Proton) player: writes a .reg file
-#                                      to import there (double-click it), so a PC copy without the retail installer
-#                                      can join the same online games. Nothing on this Mac changes.
-# install.sh --nightly                 installs "Dungeon Siege II Nightly.app" next to the stable app: the newest
-#                                      experimental work (the repository's nightly branch, fetched from GitHub and
-#                                      built in build/nightly; this checkout is left as it is). It shares the data
-#                                      folder (saves and settings) with the stable app. Run it again to update.
+# install.sh --game-dir <Diablo II folder> [--app-dir DIR] [--data-dir DIR]
+# install.sh --nightly                 installs "Diablo II Nightly.app" next to the stable app: the newest experimental
+#                                      work (the repository's nightly branch, fetched from GitHub and built in
+#                                      build/nightly; this checkout is left as it is). It shares the data folder (saves
+#                                      and settings) with the stable app. Run it again to update.
 #
-# With no game option, the game folder of an app already installed is used again (reinstall or update).
+# With no game option, the game folder of an app already installed is used again (reinstall or update); failing that,
+# the usual places a Diablo II installation lives on a Mac are searched (Wine and CrossOver bottles, /Applications).
 #
-# Builds the natively recompiled Dungeon Siege II from your own copy of the GOG release (version 2.3) and installs
-# "Dungeon Siege II Native.app" (no Wine, no Rosetta). The game folder is only read: settings, saves and logs go to the
-# data folder (default ~/Games/DungeonSiege2Native). Needs the Xcode command line tools and python3 (the recompiler
-# installs capstone with pip into recomp/.venv).
+# Builds the natively recompiled Diablo II from your own copy (version 1.14d: Game.exe and the game's .mpq archives,
+# as Blizzard's last classic patch installs them; Lord of Destruction optional) and installs "Diablo II Native.app"
+# (no Wine, no Rosetta). The game folder is only read: settings, saves and logs go to the data folder (default
+# ~/Games/Diablo2Native; characters in drive_c/Users/player/Saved Games/Diablo II). Needs the Xcode command line tools
+# and python3 (the recompiler installs capstone with pip into recomp/.venv).
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-GAME=""; GOG_EXE=""; APPS="$HOME/Applications"; DATA="$HOME/Games/DungeonSiege2Native"
-NIGHTLY=""; AS_NIGHTLY=""; CDKEY=""; REGFILE=""; ARGS=()
-GOG_SHA=c17e1cc9e01b5d2439a92e06b905040379ad4bb8618b822582c46f5fa29db4e2
+GAME=""; APPS="$HOME/Applications"; DATA="$HOME/Games/Diablo2Native"
+NIGHTLY=""; AS_NIGHTLY=""; ARGS=()
+D2_SHA=631066c1649c4ea9ffe48bf97e24c00bca1f7a6759c21150f1a79982589adaaf     # Game.exe of the 1.14d patch
 while [ $# -gt 0 ]; do
-  case "$1" in --nightly) NIGHTLY=1; shift; continue;; --as-nightly) AS_NIGHTLY=1; shift; continue;; --cd-key) CDKEY=1; shift; continue;; esac
+  case "$1" in --nightly) NIGHTLY=1; shift; continue;; --as-nightly) AS_NIGHTLY=1; shift; continue;; esac
   ARGS+=("$1"); [ $# -gt 1 ] && case "$1" in --*) case "$2" in --*) ;; *) ARGS+=("$2");; esac;; esac
   case "$1" in
-    --game-dir) GAME="$2"; shift 2;; --gog-installer) GOG_EXE="$2"; shift 2;; --app-dir) APPS="$2"; shift 2;; --data-dir) DATA="$2"; shift 2;;
-    --reg-file) REGFILE="$2"; shift 2;;
+    --game-dir) GAME="$2"; shift 2;; --app-dir) APPS="$2"; shift 2;; --data-dir) DATA="$2"; shift 2;;
     *) echo "unknown option $1"; exit 1;;
   esac
 done
 # the stable app, or (--as-nightly, used by --nightly) the nightly one next to it
-APP_NAME="Dungeon Siege II Native"; APP_SHOWN="Dungeon Siege II"; APP_ID=native; APP_LOG=DungeonSiege2Native
-[ -n "$AS_NIGHTLY" ] && { APP_NAME="Dungeon Siege II Nightly"; APP_SHOWN="Dungeon Siege II Nightly"; APP_ID=nightly; APP_LOG=DungeonSiege2Nightly; }
+APP_NAME="Diablo II Native"; APP_SHOWN="Diablo II"; APP_ID=native; APP_LOG=Diablo2Native
+[ -n "$AS_NIGHTLY" ] && { APP_NAME="Diablo II Nightly"; APP_SHOWN="Diablo II Nightly"; APP_ID=nightly; APP_LOG=Diablo2Nightly; }
 installed_game() {     # the game folder an installed app was set up with (for reinstalls and updates)
-  local a L v x; for a in "Dungeon Siege II Native" "Dungeon Siege II Nightly"; do
+  local a L v x; for a in "Diablo II Native" "Diablo II Nightly"; do
     L="$APPS/$a.app/Contents/MacOS/launcher"; [ -f "$L" ] || continue
     v="$(grep -m1 '^DEF_GAME=' "$L" | cut -d= -f2-)"           # shell-quoted (printf %q)
     if [ -n "$v" ]; then eval "x=$v"; printf '%s\n' "$x"; return 0; fi
   done; return 0
 }
-# The CD key for online play: the retail installer's "DoubleHash" of the player's product key (the key's 25 characters,
-# alphabet BCDFGHJKMPQRTVWXY2346789, read as a base-24 number into 15 little-endian bytes; SHA-1 of that, SHA-1 of the
-# digest, the first 8 bytes, as its Setup.exe computes it). store_cdkey <key> <out> [reg]: the 16 hex digits into the
-# data folder's cdkey-hash.txt, or (reg) a .reg file for a Windows player. Only the hash is ever written.
-store_cdkey() {
-  DS2_CDKEY="$1" python3 - "$2" "${3:-}" <<'PY'
-import hashlib, os, sys
-A = "BCDFGHJKMPQRTVWXY2346789"; key = os.environ["DS2_CDKEY"].upper().replace("-", "").replace(" ", "")
-if len(key) != 25 or any(c not in A for c in key): sys.exit("That is not a product key: 25 characters from " + A + ".")
-buf = bytearray(15); top = 0
-for ch in key:
-    c = A.index(ch)
-    for i in range(top + 1):
-        v = buf[i] * 24 + c; buf[i] = v & 255; c = v >> 8
-    if c: top += 1; buf[top] = c
-h = hashlib.sha1(hashlib.sha1(bytes(buf)).digest()).digest()[:8]
-if sys.argv[2] == "reg":
-    hx = ",".join("%02x" % b for b in h); out = ["REGEDIT4", ""]
-    for k in ("SOFTWARE\\Wow6432Node\\Microsoft\\Microsoft Games\\DungeonSiege2", "SOFTWARE\\Microsoft\\Microsoft Games\\DungeonSiege2"):
-        out += ["[HKEY_LOCAL_MACHINE\\" + k + "]", '"DoubleHash"=hex:' + hx, ""]
-    open(sys.argv[1], "w", newline="\r\n").write("\n".join(out))
-    print("== wrote " + sys.argv[1] + ": import it on the PC (double-click, or regedit /s) to play online with this key")
-else:
-    with open(sys.argv[1], "w") as f: f.write(h.hex() + "\n")
-    os.chmod(sys.argv[1], 0o600)
-    print("== CD key stored for online play (only its hash) in " + sys.argv[1])
-PY
+found_game() {        # a Diablo II 1.14d installation in the usual places (the first Game.exe with the right hash)
+  local d
+  for d in "$HOME"/Games/*/prefix/drive_c/"Program Files"*/"Diablo II"* "$HOME"/Games/*/drive_c/"Program Files"*/"Diablo II"* \
+           "$HOME/Library/Application Support/CrossOver/Bottles"/*/drive_c/"Program Files"*/"Diablo II"* \
+           "$HOME"/.wine/drive_c/"Program Files"*/"Diablo II"* /Applications/"Diablo II"* "$HOME"/Games/"Diablo II"*; do
+    [ -f "$d/Game.exe" ] && [ "$(shasum -a 256 "$d/Game.exe" | cut -d' ' -f1)" = "$D2_SHA" ] && { printf '%s\n' "$d"; return 0; }
+  done; return 0
 }
-ask_cdkey() {   # $1: prompt prefix; reads the key without echoing it
-  local K="${DS2_CDKEY:-}"
-  if [ -z "$K" ]; then printf '%s' "$1" >&2; IFS= read -rs K; echo >&2; fi   # the prompt on stderr: stdout is the key
-  printf '%s' "$K"
-}
-if [ -n "$CDKEY" ]; then
-  K="$(ask_cdkey 'Product key (25 characters, dashes optional): ')"
-  if [ -n "$REGFILE" ]; then store_cdkey "$K" "$REGFILE" reg || exit 1; exit 0; fi
-  mkdir -p "$DATA"; store_cdkey "$K" "$DATA/cdkey-hash.txt" || exit 1
-  [ -n "$GAME$GOG_EXE" ] || exit 0
-fi
 # --nightly: fetch the nightly branch into build/nightly and let its own install.sh install the nightly app
 if [ -n "$NIGHTLY" ] && [ -z "$AS_NIGHTLY" ]; then
   command -v git >/dev/null || { echo "git is needed for --nightly"; exit 1; }
@@ -95,25 +54,21 @@ if [ -n "$NIGHTLY" ] && [ -z "$AS_NIGHTLY" ]; then
   else mkdir -p "$HERE/build"; git -C "$HERE" worktree add -q -f --detach "$W" origin/nightly; fi
   echo "== nightly: $(git -C "$W" log -1 --format='%h %s')"
   [ -e "$W/recomp/.venv" ] || [ ! -d "$HERE/recomp/.venv" ] || ln -s "$HERE/recomp/.venv" "$W/recomp/.venv"   # share the tools
-  if [ -z "$GAME$GOG_EXE" ]; then G="$(installed_game)"; [ -n "$G" ] && ARGS+=(--game-dir "$G"); fi
+  if [ -z "$GAME" ]; then G="$(installed_game)"; [ -n "$G" ] && ARGS+=(--game-dir "$G"); fi
   exec "$W/install.sh" --as-nightly ${ARGS[@]+"${ARGS[@]}"}
 fi
-if [ -n "$GOG_EXE" ]; then       # unpack the installer into the data folder; the app reads the game from there
-  [ -f "$GOG_EXE" ] || { echo "no such file: $GOG_EXE"; exit 1; }
-  command -v innoextract >/dev/null || { echo "innoextract is needed for --gog-installer: brew install innoextract"; exit 1; }
-  X="$DATA/gog-extract"; rm -rf "$X"; mkdir -p "$X"; echo "== unpacking $GOG_EXE"
-  innoextract --gog -s -d "$X" "$GOG_EXE"
-  GAME="$(dirname "$(find "$X" -name DungeonSiege2.exe -print -quit)")"
-  [ -f "$GAME/DungeonSiege2.exe" ] || { echo "DungeonSiege2.exe not found in the installer"; exit 1; }
-fi
 [ -n "$GAME" ] || GAME="$(installed_game)"
-[ -n "$GAME" ] || { echo "usage: install.sh --game-dir <Dungeon Siege II folder> | --gog-installer <setup_dungeon_siege_2_*.exe>"; exit 1; }
+[ -n "$GAME" ] || { GAME="$(found_game)"; [ -n "$GAME" ] && echo "== found Diablo II in $GAME"; }
+[ -n "$GAME" ] || { echo "usage: install.sh --game-dir <Diablo II folder> (the folder with Game.exe and the .mpq archives)"; exit 1; }
 GAME="$(cd "$GAME" && pwd)"
 for tool in clang python3; do command -v $tool >/dev/null || { echo "$tool is missing: install the Xcode command line tools (xcode-select --install)"; exit 1; }; done
 [ "$(uname -m)" = arm64 ] || { echo "the native build is for Apple Silicon Macs"; exit 1; }
-EXE="$GAME/DungeonSiege2.exe"
-[ -f "$EXE" ] || { echo "no DungeonSiege2.exe in $GAME"; exit 1; }
-[ "$(shasum -a 256 "$EXE" | cut -d' ' -f1)" = "$GOG_SHA" ] || { echo "$EXE is not the GOG Dungeon Siege II 2.3 release"; exit 1; }
+EXE="$GAME/Game.exe"
+[ -f "$EXE" ] || { echo "no Game.exe in $GAME"; exit 1; }
+[ "$(shasum -a 256 "$EXE" | cut -d' ' -f1)" = "$D2_SHA" ] || { echo "$EXE is not Diablo II 1.14d (update the game to 1.14d first: Blizzard's last classic patch)"; exit 1; }
+for f in d2data.mpq d2char.mpq d2sfx.mpq d2music.mpq d2speech.mpq d2video.mpq binkw32.dll SmackW32.dll ijl11.dll D2.LNG; do
+  [ -f "$GAME/$f" ] || { echo "the game folder has no $f: point --game-dir at a complete Diablo II installation"; exit 1; }
+done
 echo "== recompiling $EXE (a few minutes)"
 "$HERE/recomp/build.sh" "$EXE"
 "$HERE/recomp/tools/build_app.sh" "$HERE/recomp/work/full" >/dev/null
@@ -121,8 +76,7 @@ echo "== recompiling $EXE (a few minutes)"
 A="$APPS/$APP_NAME.app"; echo "== installing $A"
 mkdir -p "$APPS"; rm -rf "$A"; mkdir -p "$A/Contents/MacOS" "$A/Contents/Resources"
 cp "$HERE/recomp/work/full/app/Diablo2Native" "$HERE/recomp/work/full/app/shaders.metal" "$HERE/recomp/work/full/app/dsr_snapshot.bin" "$A/Contents/MacOS/"
-cp "$HERE/recomp/work/DungeonSiege2.exe" "$A/Contents/Resources/DungeonSiege2.exe"
-mkdir -p "$A/Contents/Resources/test_lab"; cp "$HERE"/recomp/host/test_lab/*.py "$A/Contents/Resources/test_lab/"   # the Test Lab's helpers
+cp "$HERE/recomp/work/Game.exe" "$A/Contents/Resources/Game.exe"
 Q_GAME=$(printf '%q' "$GAME"); Q_DATA=$(printf '%q' "$DATA")      # shell-quoted: any folder name is only data
 # updates from the launcher: the branch this app follows (main, or nightly for Nightly), the commit it was built from and
 # the checkout it was installed from; its updater fetches the branch into a worktree there and rebuilds the app from it
@@ -161,30 +115,30 @@ L="\$DATA/$APP_LOG.log"                                   # keep the log small: 
 B="\$(cd "\$(dirname "\$0")" && pwd)"
 export DS_LOG_FILE="\$L"                                    # crash reports attach this app's own log
 [ -x "\$B/update" ] && export DS_UPDATER="\$B/update" DS_UPDATE_BRANCH=$U_BRANCH DS_BUILT_COMMIT=$U_BUILT   # the launcher's Updates row
-exec "\$B/Diablo2Native" --exe "\$B/../Resources/DungeonSiege2.exe" --game "\$GAME" --data "\$DATA" 2>>"\$L"
+exec "\$B/Diablo2Native" --exe "\$B/../Resources/Game.exe" --game "\$GAME" --data "\$DATA" 2>>"\$L"
 LAUNCH
 chmod +x "$A/Contents/MacOS/launcher"
 # The app's executable is the game itself (macOS recognises a game, and turns on Game Mode, only for a bundle whose
 # executable is the program): it reads these settings when opened (the launcher script above is for the terminal)
 P="$A/Contents/Resources/launch.plist"; plutil -create xml1 "$P"
 plutil -insert game -string "$GAME" "$P"; plutil -insert data -string "$DATA" "$P"; plutil -insert log -string "$APP_LOG" "$P"
-plutil -insert exe -string DungeonSiege2.exe "$P"; plutil -insert branch -string "$U_BRANCH" "$P"; plutil -insert built -string "$U_BUILT" "$P"
+plutil -insert exe -string Game.exe "$P"; plutil -insert branch -string "$U_BRANCH" "$P"; plutil -insert built -string "$U_BUILT" "$P"
 cat > "$A/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>CFBundleName</key><string>$APP_NAME</string>
   <key>CFBundleDisplayName</key><string>$APP_SHOWN</string>
-  <key>CFBundleIdentifier</key><string>io.github.dungeon-siege-2-macos.$APP_ID</string>
+  <key>CFBundleIdentifier</key><string>io.github.diablo-2-macos.$APP_ID</string>
   <key>CFBundleExecutable</key><string>Diablo2Native</string>
   <key>CFBundleIconFile</key><string>icon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>2.3</string>
+  <key>CFBundleShortVersionString</key><string>1.14d</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.games</string>
   <key>GCSupportsGameMode</key><true/>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>
-  <key>NSLocalNetworkUsageDescription</key><string>Dungeon Siege II looks for and hosts multiplayer games on your local network.</string>
+  <key>NSLocalNetworkUsageDescription</key><string>Diablo II hosts and joins TCP/IP games on your local network.</string>
 </dict></plist>
 PLIST
 I="$(mktemp -d)"
@@ -197,21 +151,7 @@ fi
 rm -rf "$I"
 codesign --force --deep --sign - "$A" >/dev/null 2>&1 || true
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$A" 2>/dev/null || true
-# the launch window's banner: the game's key art from Steam's store page (as the DS1 port does); DS_NO_DOWNLOADS=1 skips it,
-# and without it the window shows the game's own logo
-ART_URL=https://cdn.cloudflare.steamstatic.com/steam/apps/39200/library_hero.jpg
-if [ -z "${DS_NO_DOWNLOADS:-}" ] && [ ! -s "$DATA/art/banner.jpg" ]; then
-  mkdir -p "$DATA/art"; f="$DATA/art/banner.jpg"
-  if curl -fsSL --retry 2 -o "$f.part" "$ART_URL" && [ "$(head -c 3 "$f.part" | xxd -p)" = ffd8ff ] && [ "$(wc -c < "$f.part")" -gt 50000 ]; then
-    mv "$f.part" "$f"; echo "== the launcher's banner: Dungeon Siege II's key art, from Steam's store"
-  else rm -f "$f.part"; echo "   (the launcher's banner couldn't be downloaded; the window shows the game's logo)"; fi
-fi
+# the launch window's art: the main menu's backdrop and logo, decoded from the player's own archives
+"$HERE/recomp/.venv/bin/python" "$HERE/recomp/tools/d2art.py" "$GAME" "$DATA/art" >/dev/null 2>&1 \
+  && echo "== the launch window's art: from your game's archives" || echo "   (the launch window's art couldn't be read; it shows a plain title)"
 echo "== done: $A (data in $DATA)"
-# online play needs the player's own CD key: offered once, on an interactive install (not by the launcher's updater)
-if [ ! -f "$DATA/cdkey-hash.txt" ] && [ -t 0 ] && [ -z "$AS_NIGHTLY$CDKEY" ]; then
-  echo "== Online play needs the CD key of an original retail copy (25 characters, on the sticker under disc 1; Steam"
-  echo "   and GOG copies have none). Press Return to skip;"
-  echo "   you can add it later in the launch window (Online) or with ./install.sh --cd-key."
-  K="$(ask_cdkey 'Product key: ')"
-  [ -n "$K" ] && { store_cdkey "$K" "$DATA/cdkey-hash.txt" || echo "   (not stored; try again from the launch window)"; }
-fi

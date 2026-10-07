@@ -1,7 +1,7 @@
 // Diablo2Native: the recompiled game as a native macOS app. The game runs on its own thread (recompiled code +
 // Win32 layer); this file provides the window, the Metal renderer consuming the game's D3D7 command stream in-process
 // (src/renderer), and input (mouse/keyboard -> Windows messages and key state, relative mouse like the original).
-//   Diablo2Native --exe <DungeonSiege.exe> --game <game folder> --data <folder for C: and saved files>
+//   Diablo2Native --exe <Game.exe (the copy recompiled with)> --game <Diablo II folder> --data <folder for C: and saved files>
 #import <AppKit/AppKit.h>
 #import <Metal/Metal.h>
 #import <QuartzCore/QuartzCore.h>
@@ -181,7 +181,7 @@ static void parse_script(void)
 /* The game moves its own cursor by the distance of the OS cursor from the window centre each frame (then re-centres
  * it), so a scripted click is mouse motion: pin to the top-left corner, then move by the target offset in steps. */
 static int mot_dx, mot_dy, mot_home;
-/* Dungeon Siege II reads the cursor's absolute position (GetCursorPos): a scripted move puts it at the target and sends
+/* Diablo II reads the cursor's absolute position (GetCursorPos): a scripted move puts it at the target and sends
  * WM_MOUSEMOVE there for a few frames */
 static void motion_tick(void)
 {
@@ -467,7 +467,7 @@ static void window_created(uint32_t hwnd, int x, int y, int w, int h, uint32_t s
         win = [[GameWindow alloc] initWithContentRect:f styleMask:sm backing:NSBackingStoreBuffered defer:NO];
         win.releasedWhenClosed = NO;   /* ARC owns it (AppKit's default releases a closed window once more) */
         f.origin = NSZeroPoint;
-        win.title = lab_mode ? @"Dungeon Siege II — Test Lab" : @"Dungeon Siege"; win.backgroundColor = NSColor.blackColor; win.acceptsMouseMovedEvents = YES;
+        win.title = @"Diablo II"; win.backgroundColor = NSColor.blackColor; win.acceptsMouseMovedEvents = YES;
         GameView *v = [[GameView alloc] initWithFrame:f]; v.wantsLayer = YES;
         win.contentView = v; [win makeFirstResponder:v];
         win.collectionBehavior = NSWindowCollectionBehaviorFullScreenPrimary;
@@ -493,41 +493,6 @@ static void window_changed(uint32_t hwnd, int x, int y, int w, int h, int visibl
     });
 }
 
-/* The game's resolution lives in DungeonSiege2.ini (width/height at the top, before any [section]). With none set, use
- * this screen's size (in points); DS_RESOLUTION=WxH sets it explicitly. Test runs keep the game's own default unless
- * DS_RESOLUTION is given. */
-static void ensure_resolution(const char *drive_c)
-{
-    char dir[1200], path[1300];
-    snprintf(dir, sizeof dir, "%s/Users/player/Documents/My Games/Dungeon Siege 2", drive_c);
-    snprintf(path, sizeof path, "%s/DungeonSiege2.ini", dir);
-    if (getenv("DS_TEST") && !getenv("DS_RESOLUTION")) return;
-    int w = w32_screen_w, h = w32_screen_h, force = 0;
-    const char *r = getenv("DS_RESOLUTION");
-    if (r && sscanf(r, "%dx%d", &w, &h) == 2 && w >= 640 && h >= 480) force = 1; else { w = w32_screen_w; h = w32_screen_h; }
-    NSString *text = [NSString stringWithContentsOfFile:@(path) encoding:NSISOLatin1StringEncoding error:nil] ?: @"";
-    NSMutableArray<NSString *> *lines = [[text componentsSeparatedByString:@"\n"] mutableCopy];
-    if (lines.count && [lines.lastObject isEqualToString:@""]) [lines removeLastObject];
-    int has_w = 0, has_h = 0, has_bpp = 0, top = 1;
-    for (NSUInteger k = 0; k < lines.count; k++) {
-        NSString *t = [lines[k] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
-        if ([t hasPrefix:@"["]) top = 0;
-        if (!top) continue;
-        NSString *key = [[t componentsSeparatedByString:@"="].firstObject stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet].lowercaseString;
-        if ([key isEqualToString:@"width"]) { has_w = 1; if (force) lines[k] = [NSString stringWithFormat:@"width = %d", w]; }
-        if ([key isEqualToString:@"height"]) { has_h = 1; if (force) lines[k] = [NSString stringWithFormat:@"height = %d", h]; }
-        if ([key isEqualToString:@"bpp"]) has_bpp = 1;
-    }
-    if (has_w && has_h && !force) return;
-    NSMutableArray<NSString *> *add = [NSMutableArray array];
-    if (!has_w) [add addObject:[NSString stringWithFormat:@"width = %d", w]];
-    if (!has_h) [add addObject:[NSString stringWithFormat:@"height = %d", h]];
-    if (!has_bpp) [add addObject:@"bpp = 32"];
-    [lines insertObjects:add atIndexes:[NSIndexSet indexSetWithIndexesInRange:NSMakeRange(0, add.count)]];
-    [[NSFileManager defaultManager] createDirectoryAtPath:@(dir) withIntermediateDirectories:YES attributes:nil error:nil];
-    [[[lines componentsJoinedByString:@"\n"] stringByAppendingString:@"\n"] writeToFile:@(path) atomically:YES encoding:NSISOLatin1StringEncoding error:nil];
-    fprintf(stderr, "Diablo2Native: resolution %dx%d (%s)\n", w, h, path);
-}
 
 static void type_text(NSString *text)
 {
@@ -581,7 +546,7 @@ static void *game_thread(void *arg)
         capture(0);
         if (path && !test_mode) {
             leave_fullscreen(); [win orderOut:nil]; [NSApp setPresentationOptions:NSApplicationPresentationDefault];
-            show_report_alert(@"Dungeon Siege stopped unexpectedly.", path);
+            show_report_alert(@"Diablo II stopped unexpectedly.", path);
         }
         exit((int)code);
     });
@@ -597,7 +562,7 @@ static void report_from_last_session(const char *data)
         if (([f hasPrefix:@"crash-"] || ([f hasPrefix:@"hang-"] && ![f hasPrefix:@"hang-recovered-"])) && (!newest || [f compare:newest] == NSOrderedDescending)) newest = f;
     if (!newest || [newest compare:seen] != NSOrderedDescending) return;
     [newest writeToFile:marker atomically:YES encoding:NSUTF8StringEncoding error:nil];
-    show_report_alert([newest hasPrefix:@"hang-"] ? @"Last time, Dungeon Siege stopped responding." : @"Last time, Dungeon Siege stopped unexpectedly.",
+    show_report_alert([newest hasPrefix:@"hang-"] ? @"Last time, Diablo II stopped responding." : @"Last time, Diablo II stopped unexpectedly.",
                       [dir stringByAppendingPathComponent:newest]);
 }
 static void on_objc_exception(NSException *e)
@@ -618,7 +583,7 @@ static int bundle_launch(const char *argv0, const char **exe, const char **game,
     NSString *g = getenv("DS_GAME_DIR") ? @(getenv("DS_GAME_DIR")) : cfg[@"game"], *d = getenv("DS_NATIVE_DATA") ? @(getenv("DS_NATIVE_DATA")) : cfg[@"data"];
     NSFileManager *fm = NSFileManager.defaultManager;
     [fm createDirectoryAtPath:[d stringByAppendingPathComponent:@"drive_c/Users/player/Documents"] withIntermediateDirectories:YES attributes:nil error:nil];
-    NSString *log = [d stringByAppendingPathComponent:[cfg[@"log"] ?: @"DungeonSiege2Native" stringByAppendingString:@".log"]];
+    NSString *log = [d stringByAppendingPathComponent:[cfg[@"log"] ?: @"Diablo2Native" stringByAppendingString:@".log"]];
     if ([[fm attributesOfItemAtPath:log error:nil] fileSize] > 5000000) {                        /* keep the log small: previous one as .old */
         NSString *old = [[log stringByDeletingPathExtension] stringByAppendingString:@".old.log"];
         [fm removeItemAtPath:old error:nil]; [fm moveItemAtPath:log toPath:old error:nil];
@@ -630,7 +595,7 @@ static int bundle_launch(const char *argv0, const char **exe, const char **game,
         setenv("DS_UPDATER", upd.fileSystemRepresentation, 1); setenv("DS_UPDATE_BRANCH", [cfg[@"branch"] UTF8String], 1);
         setenv("DS_BUILT_COMMIT", [cfg[@"built"] ?: @"" UTF8String], 1);
     }
-    *exe = strdup([res stringByAppendingPathComponent:cfg[@"exe"] ?: @"DungeonSiege2.exe"].fileSystemRepresentation);
+    *exe = strdup([res stringByAppendingPathComponent:cfg[@"exe"] ?: @"Game.exe"].fileSystemRepresentation);
     *game = strdup(g.fileSystemRepresentation); *data = strdup(d.fileSystemRepresentation);
     return 1;
 }
@@ -645,7 +610,7 @@ int main(int argc, char **argv)
             else if (!strcmp(argv[k], "--data")) data = argv[k + 1];
         }
         if (!exe && !game && !data) bundle_launch(argv[0], &exe, &game, &data);
-        if (!exe || !game || !data) { fprintf(stderr, "usage: Diablo2Native --exe <DungeonSiege2.exe> --game <game folder> --data <data folder>\n"); return 1; }
+        if (!exe || !game || !data) { fprintf(stderr, "usage: Diablo2Native --exe <Game.exe> --game <Diablo II folder> --data <data folder>\n"); return 1; }
         NSString *bin = [[NSString stringWithUTF8String:argv[0]] stringByDeletingLastPathComponent];
         snprintf(dsr_snapshot_path, sizeof dsr_snapshot_path, "%s/dsr_snapshot.bin", bin.UTF8String);
         char drive_c[1024], overlay[1024];
@@ -666,7 +631,6 @@ int main(int argc, char **argv)
         w32_crash_init(data, DS_BUILD); w32_crash_thread("macOS UI thread");
         { void w32_registry_install(const char *); w32_registry_install(data); }   /* values the game's installer would have written */
         NSSetUncaughtExceptionHandler(on_objc_exception);
-        ensure_resolution(drive_c);
         test_mode = getenv("DS_TEST") && atoi(getenv("DS_TEST"));
         if (test_mode && getenv("DS_PEEKFILE")) { pthread_t pt; pthread_create(&pt, 0, peek_thread, (void *)getenv("DS_PEEKFILE")); pthread_detach(pt); }
         ds_trace_init(&frame_trace);

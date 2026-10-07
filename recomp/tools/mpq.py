@@ -1,5 +1,5 @@
-"""A small MPQ (Mo'PaQ, format 0/1) reader for the tests: an independent way to read the game's archives, to check what
-the recompiled game reads and plays against. Hash and block tables, file-key encryption, single-unit and sectored
+"""A small MPQ (Mo'PaQ, format 0/1) reader: an independent way to read the game's archives, for the tests (to check
+what the recompiled game reads and plays against) and for tools/d2art.py (the launcher's art). Hash and block tables, file-key encryption, single-unit and sectored
 files, sector CRC flags, and these compressions: zlib (0x02), bzip2 (0x10), PKWARE DCL implode (0x08 flag or 0x08
 compression), Huffman (0x01) and IMA ADPCM mono/stereo (0x40/0x80), which Blizzard used for WAV sound.
 
@@ -129,7 +129,7 @@ def set_huffman_tables(blob):
     _HUFF_TABLES = [blob[0x102 * k:0x102 * (k + 1)] for k in range(9)]
 def huffman_tables_from_exe(exe_path, va=0x6cf3a0):
     """Diablo II 1.14d Game.exe keeps Storm's tables at 0x6cf3a0."""
-    sys.path.insert(0, __import__('os').path.join(__import__('os').path.dirname(__file__), '..', 'tools'))
+    sys.path.insert(0, __import__('os').path.dirname(__import__('os').path.abspath(__file__)))
     from pe import PE
     set_huffman_tables(PE(exe_path).bytes_at(va, 9 * 0x102))
 

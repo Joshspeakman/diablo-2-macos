@@ -1,7 +1,7 @@
-// The launch window: resolution, frame rate and updates, remembered in <data>/launcher.plist, then Play.
-// Its look comes from the game itself, read at launch from the player's own Resources/Objects.ds2res (the main menu's
-// logo, red backdrop and wooden menu bars) and set in Copperplate. Nothing from the game is stored in this project;
-// without the archive the window falls back to plain colours.
+// The launch window: the video mode, the picture's scaling and updates, remembered in <data>/launcher.plist, then Play.
+// Its look comes from the game itself: the main menu's backdrop and the Diablo II logo, which install.sh decodes from
+// the player's own archives into <data>/art (tools/d2art.py). Nothing from the game is stored in this project; without
+// them the window falls back to plain colours and a drawn title.
 #import <AppKit/AppKit.h>
 #import <Metal/Metal.h>
 #import <ImageIO/ImageIO.h>
@@ -10,77 +10,6 @@
 #include <arpa/inet.h>
 #include <ifaddrs.h>
 #include <net/if.h>
-
-// ---------------------------------------------------------------- reading textures from a tank (.dsres) archive
-static NSData *tank_read(NSString *tankPath, NSString *want)
-{
-    NSData *file = [NSData dataWithContentsOfFile:tankPath options:NSDataReadingMappedIfSafe error:nil];
-    if (file.length < 64) return nil;
-    const uint8_t *d = file.bytes; size_t n = file.length;
-    #define U32(o) (*(const uint32_t *)(d + (o)))
-    #define U16(o) (*(const uint16_t *)(d + (o)))
-    if (memcmp(d, "DSigTank", 8) && memcmp(d, "DSg2Tank", 8)) return nil;   /* Dungeon Siege, Dungeon Siege II */
-    uint32_t dirset = U32(12), fileset = U32(16), dataoff = U32(24);
-    if (dirset >= n || fileset >= n) return nil;
-    NSMutableDictionary<NSNumber *, NSString *> *dirs = [NSMutableDictionary dictionary];
-    NSMutableDictionary<NSNumber *, NSNumber *> *parents = [NSMutableDictionary dictionary];
-    for (uint32_t k = 0, nd = U32(dirset); k < nd; k++) {
-        uint32_t off = U32(dirset + 4 + 4 * k), o = dirset + off; uint16_t len = U16(o + 16);
-        dirs[@(off)] = [[NSString alloc] initWithBytes:d + o + 18 length:len encoding:NSISOLatin1StringEncoding];
-        parents[@(off)] = @(U32(o));
-    }
-    NSString *(^path)(uint32_t) = ^NSString *(uint32_t off) {
-        NSMutableArray *parts = [NSMutableArray array];
-        for (int guard = 0; guard < 64 && dirs[@(off)].length; guard++) { [parts insertObject:dirs[@(off)] atIndex:0]; uint32_t p = parents[@(off)].unsignedIntValue; if (p == off) break; off = p; }
-        return [parts componentsJoinedByString:@"/"];
-    };
-    for (uint32_t k = 0, nf = U32(fileset); k < nf; k++) {
-        uint32_t o = fileset + U32(fileset + 4 + 4 * k), parent = U32(o), size = U32(o + 4), foff = U32(o + 8); uint16_t fmt = U16(o + 24), len = U16(o + 28);
-        NSString *name = [[NSString alloc] initWithBytes:d + o + 30 length:len encoding:NSISOLatin1StringEncoding];
-        if ([[NSString stringWithFormat:@"%@/%@", path(parent), name] caseInsensitiveCompare:want] != NSOrderedSame) continue;
-        uint32_t o2 = (o + 30 + len + 1 + 3) & ~3u;
-        if (fmt == 0) return dataoff + foff + size <= n ? [NSData dataWithBytes:d + dataoff + foff length:size] : nil;
-        uint32_t chunk = U32(o2 + 4); o2 += 8;
-        NSMutableData *out = [NSMutableData dataWithCapacity:size];
-        for (uint32_t c = 0; c < (size + chunk - 1) / chunk; c++) {
-            uint32_t usz = U32(o2 + 16 * c), csz = U32(o2 + 16 * c + 4), extra = U32(o2 + 16 * c + 8), coff = U32(o2 + 16 * c + 12);
-            const uint8_t *src = d + dataoff + foff + coff;
-            if (dataoff + foff + coff + csz + extra > n) return nil;
-            if (csz < usz) { NSMutableData *u = [NSMutableData dataWithLength:usz]; uLongf ul = usz;
-                if (uncompress(u.mutableBytes, &ul, src, csz) != Z_OK) return nil; u.length = ul; [out appendData:u]; }
-            else [out appendBytes:src length:usz];
-            if (extra) [out appendBytes:src + csz length:extra];
-        }
-        out.length = size; return out;
-    }
-    return nil;
-    #undef U32
-    #undef U16
-}
-/* a DDS texture (DXT-compressed or not) -> CGImage, through ImageIO */
-static CGImageRef dds_image(NSData *d)
-{
-    if (d.length < 128 || memcmp(d.bytes, "DDS ", 4)) return NULL;
-    CGImageSourceRef src = CGImageSourceCreateWithData((__bridge CFDataRef)d, NULL); if (!src) return NULL;
-    CGImageRef img = CGImageSourceCreateImageAtIndex(src, 0, NULL); CFRelease(src); return img;
-}
-static NSImage *nsimg(CGImageRef img, CGRect crop)
-{
-    if (!img) return nil;
-    CGImageRef c = CGRectIsEmpty(crop) ? CGImageRetain(img) : CGImageCreateWithImageInRect(img, crop);
-    NSImage *r = [[NSImage alloc] initWithCGImage:c size:NSZeroSize]; CGImageRelease(c); return r;
-}
-/* the part of an image with any opacity */
-static CGRect opaque_bounds(CGImageRef img)
-{
-    size_t w = CGImageGetWidth(img), h = CGImageGetHeight(img); uint8_t *px = calloc(w * h, 4);
-    CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB(); CGContextRef c = CGBitmapContextCreate(px, w, h, 8, w * 4, cs, (CGBitmapInfo)kCGImageAlphaPremultipliedLast);
-    CGContextDrawImage(c, CGRectMake(0, 0, w, h), img);
-    size_t x0 = w, y0 = h, x1 = 0, y1 = 0;
-    for (size_t y = 0; y < h; y++) for (size_t x = 0; x < w; x++) if (px[(y * w + x) * 4 + 3] > 8) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
-    CGContextRelease(c); CGColorSpaceRelease(cs); free(px);
-    return x1 >= x0 ? CGRectMake(x0, y0, x1 - x0 + 1, y1 - y0 + 1) : CGRectZero;   /* bitmap rows run top-down here */
-}
 
 // ---------------------------------------------------------------- settings
 typedef struct { NSString *value, *label, *note; } Choice;
@@ -215,8 +144,8 @@ static void draw_text(NSString *s, NSFont *f, NSColor *c, NSRect r, NSTextAlignm
 }
 - (void)drawTitle:(NSRect)r
 {
-    /* "DUNGEON SIEGE" in the logo's manner: brushed silver letters, a copper rim, a dark drop shadow */
-    NSString *t = @"DUNGEON SIEGE II"; NSFont *f = cp(42, YES);
+    /* "DIABLO II" when the game's logo isn't there: brushed silver letters, a copper rim, a dark drop shadow */
+    NSString *t = @"DIABLO II"; NSFont *f = cp(46, YES);
     NSDictionary *at = @{NSFontAttributeName: f, NSKernAttributeName: @3};
     NSSize sz = [t sizeWithAttributes:at]; NSPoint o = NSMakePoint(NSMidX(r) - sz.width / 2, NSMidY(r) - sz.height / 2 - 2);
     NSShadow *sh = [NSShadow new]; sh.shadowColor = [NSColor colorWithWhite:0 alpha:0.85]; sh.shadowOffset = NSMakeSize(0, -3); sh.shadowBlurRadius = 5;
@@ -238,7 +167,15 @@ static void draw_text(NSString *s, NSFont *f, NSColor *c, NSRect r, NSTextAlignm
 {
     NSImage *img = self.pressed == code ? (self.woodDown ?: self.wood) : self.hover == code ? (self.woodHover ?: self.wood) : self.wood;
     if (img) [img drawInRect:r fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1 respectFlipped:YES hints:@{NSImageHintInterpolation: @(NSImageInterpolationHigh)}];
-    else { [[NSColor colorWithSRGBRed:0.36 green:0.22 blue:0.12 alpha:1] setFill]; [[NSBezierPath bezierPathWithRoundedRect:r xRadius:6 yRadius:6] fill]; }
+    else {   /* the game's menu buttons: dark stone, a thin gold edge, lighter when pointed at, sunk when pressed */
+        CGFloat lift = self.pressed == code ? -0.03 : self.hover == code ? 0.05 : 0;
+        NSGradient *g = [[NSGradient alloc] initWithStartingColor:[NSColor colorWithWhite:0.30 + lift alpha:1] endingColor:[NSColor colorWithWhite:0.13 + lift alpha:1]];
+        NSBezierPath *p = [NSBezierPath bezierPathWithRoundedRect:NSInsetRect(r, 1, 1) xRadius:3 yRadius:3];
+        [g drawInBezierPath:p angle:self.pressed == code ? 90 : -90];
+        [[NSColor colorWithSRGBRed:0.62 green:0.5 blue:0.28 alpha:1] setStroke]; p.lineWidth = 1.5; [p stroke];
+        NSBezierPath *in = [NSBezierPath bezierPathWithRoundedRect:NSInsetRect(r, 4, 4) xRadius:2 yRadius:2]; in.lineWidth = 1;
+        [[NSColor colorWithWhite:0 alpha:0.6] setStroke]; [in stroke];
+    }
     NSShadow *sh = [NSShadow new]; sh.shadowColor = [NSColor colorWithWhite:0 alpha:0.9]; sh.shadowOffset = NSMakeSize(0, -1.5); sh.shadowBlurRadius = 2;
     NSColor *c = self.hover == code ? [NSColor colorWithSRGBRed:1 green:0.93 blue:0.72 alpha:1] : primary ? gold() : parchment();
     /* the capitals centred on the button (the line's own box sits them high: it leaves room below for descenders) */
@@ -295,12 +232,12 @@ static void draw_text(NSString *s, NSFont *f, NSColor *c, NSRect r, NSTextAlignm
 {
     NSRect b = self.bounds;
     NSShadow *sh = [NSShadow new]; sh.shadowColor = [NSColor colorWithWhite:0 alpha:0.9]; sh.shadowOffset = NSMakeSize(0, -1); sh.shadowBlurRadius = 2;
-    /* the main menu's red backdrop, filling the window with its aspect kept (cropped at the sides) */
+    /* the main menu's backdrop, filling the window with its aspect kept (cropped at the sides) */
     if (self.stone) {
         CGFloat sc = MAX(b.size.width / self.stone.size.width, b.size.height / self.stone.size.height), w = self.stone.size.width * sc, h = self.stone.size.height * sc;
         [self.stone drawInRect:NSMakeRect(NSMidX(b) - w / 2, NSMidY(b) - h / 2, w, h) fromRect:NSZeroRect operation:NSCompositingOperationCopy fraction:1 respectFlipped:YES hints:@{NSImageHintInterpolation: @(NSImageInterpolationHigh)}];
     }
-    else { [[NSColor colorWithSRGBRed:0.16 green:0.03 blue:0.02 alpha:1] setFill]; NSRectFill(b); }
+    else { [[NSColor colorWithSRGBRed:0.06 green:0.05 blue:0.05 alpha:1] setFill]; NSRectFill(b); }
     NSGradient *vig = [[NSGradient alloc] initWithColorsAndLocations:[NSColor colorWithWhite:0 alpha:0.15], 0.0, [NSColor colorWithWhite:0 alpha:0.62], 1.0, nil];
     [vig drawInRect:b relativeCenterPosition:NSMakePoint(0, 0.1)];
     if (self.banner) {
@@ -318,6 +255,13 @@ static void draw_text(NSString *s, NSFont *f, NSColor *c, NSRect r, NSTextAlignm
         NSDictionary *sa = @{NSFontAttributeName: sf, NSForegroundColorAttributeName: gold(), NSShadowAttributeName: sh, NSKernAttributeName: @1};
         NSString *st = @"NATIVE EDITION FOR macOS"; NSSize ss = [st sizeWithAttributes:sa];
         [st drawAtPoint:NSMakePoint(NSMidX(sr) - ss.width / 2, round(NSMidY(sr) + sf.capHeight / 2 - sf.ascender)) withAttributes:sa];
+    } else if (self.stone && self.logo) {
+        /* the game's main menu: its logo where the game draws it on this backdrop (800x600: x centred, y 5 to 160), the
+         * backdrop's own "Expansion Set" lettering under it, and the subtitle below that */
+        CGFloat sc = MAX(b.size.width / 800, b.size.height / 600), ox = NSMidX(b) - 400 * sc, oy = NSMidY(b) - 300 * sc;
+        CGFloat lw = self.logo.size.width * sc, lh = self.logo.size.height * sc;
+        [self.logo drawInRect:NSMakeRect(ox + 400 * sc - lw / 2, oy + 160 * sc - lh, lw, lh) fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1 respectFlipped:YES hints:@{NSImageHintInterpolation: @(NSImageInterpolationHigh)}];
+        draw_text(@"NATIVE EDITION FOR macOS", cp(13, NO), gold(), NSMakeRect(0, oy + 236 * sc, b.size.width, 18), NSTextAlignmentCenter, sh);
     } else {
         /* without it: the main menu's logo (or a title plaque) over the backdrop */
         NSRect pr = NSMakeRect(NSMidX(b) - 290, 40, 580, 168);
@@ -350,7 +294,7 @@ static void draw_text(NSString *s, NSFont *f, NSColor *c, NSRect r, NSTextAlignm
     if (self.open >= 0) {
         [[NSColor colorWithWhite:0 alpha:0.6] setFill]; NSRectFillUsingOperation(b, NSCompositingOperationSourceOver);
         NSRect f = self.flyRect;
-        [[NSColor colorWithSRGBRed:0.1 green:0.02 blue:0.01 alpha:1] setFill]; NSRectFill(NSInsetRect(f, 6, 6));   /* the panel: the backdrop's darkest red */
+        [[NSColor colorWithSRGBRed:0.05 green:0.045 blue:0.04 alpha:1] setFill]; NSRectFill(NSInsetRect(f, 6, 6));   /* the panel: the game's dark stone */
         [[NSColor colorWithWhite:0 alpha:0.35] setFill]; NSRectFillUsingOperation(NSInsetRect(f, 6, 6), NSCompositingOperationSourceOver);
         [self drawIronFrame:f];
         draw_text(self.sections[self.open].title.uppercaseString, cp(24, YES), gold(), NSMakeRect(f.origin.x, f.origin.y + 22, f.size.width, 32), NSTextAlignmentCenter, sh);
@@ -371,207 +315,21 @@ static NSArray<NSDictionary *> *notch_choices(void)
     return @[@{@"value": @"hide", @"label": @"Hide the Notch", @"note": @"The picture below the camera, a black band beside it"},
              @{@"value": @"around", @"label": @"Around the Notch", @"note": @"The picture on the whole display, the notch over its top"}];
 }
-static void apply_notch(NSString *v) { setenv("DS_NOTCH", v.UTF8String, 1); }
-/* Interface Size: the game runs at the chosen resolution divided by this, so its interface is laid out that much
- * larger, and the renderer draws the screen at the chosen resolution itself (DSR_RENDER_SCALE), so the world stays sharp.
- * Only sizes that leave the game at least 800x600 (what its interface is laid out for) are offered. */
-static NSArray<NSDictionary *> *ui_choices(NSString *res)
+/* The game's own renderers (D2_RENDERER, chosen at start-up by runtime/win32/hooks.c): its DirectDraw renderer, which
+ * plays the cinematics, or its windowed mode. Both draw the same 8-bit pictures in software; 1.14d's Direct3D mode is
+ * not offered. */
+static NSArray<NSDictionary *> *video_choices(void)
 {
-    int W = 0, H = 0; sscanf(res.UTF8String, "%dx%d", &W, &H);
-    NSMutableArray *a = [NSMutableArray array];
-    static const int sizes[] = {100, 125, 150, 175, 200, 250, 300};
-    for (size_t k = 0; k < sizeof sizes / sizeof *sizes; k++) { int pc = sizes[k];
-        if (pc > 100 && (W * 100 / pc < 800 || H * 100 / pc < 600)) continue;
-        [a addObject:@{@"value": [NSString stringWithFormat:@"%d", pc], @"label": [NSString stringWithFormat:@"%d%%", pc],
-                       @"note": pc == 100 ? @"As the game draws it" : [NSString stringWithFormat:@"The game at %d x %d, drawn at %d x %d", (int)lround(W * 100.0 / pc), (int)lround(H * 100.0 / pc), W, H]}];
-    }
-    return a;
+    return @[@{@"value": @"ddraw", @"label": @"DirectDraw", @"note": @"The classic renderer, with the cinematics (recommended)"},
+             @{@"value": @"gdi", @"label": @"Windowed Mode", @"note": @"The game's -w mode: the same picture, no cinematics"}];
 }
-static void apply_ui(NSString *res, NSString *size)
+/* the picture scaled to the display by the renderer's present shader (DSR_FILTER) */
+static NSArray<NSDictionary *> *scaling_choices(void)
 {
-    int W = 0, H = 0, pc = size.intValue; sscanf(res.UTF8String, "%dx%d", &W, &H);
-    if (pc <= 100 || !W || !H) { unsetenv("DSR_RENDER_SCALE"); return; }
-    setenv("DS_RESOLUTION", [NSString stringWithFormat:@"%dx%d", (int)lround(W * 100.0 / pc), (int)lround(H * 100.0 / pc)].UTF8String, 1);
-    setenv("DSR_RENDER_SCALE", [NSString stringWithFormat:@"%g", pc / 100.0].UTF8String, 1);
-}
-static NSArray<NSDictionary *> *resolution_choices(BOOL below_notch)
-{
-    NSScreen *s = NSScreen.mainScreen; int W = (int)s.frame.size.width, H = (int)s.frame.size.height; double sc = s.backingScaleFactor;
-    if (below_notch) H -= notch_height();
-    NSMutableArray *a = [NSMutableArray array]; NSMutableSet *seen = [NSMutableSet set];
-    void (^add)(int, int, NSString *) = ^(int w, int h, NSString *note) {
-        NSString *v = [NSString stringWithFormat:@"%dx%d", w, h]; if ([seen containsObject:v]) return; [seen addObject:v];
-        [a addObject:@{@"value": v, @"label": [NSString stringWithFormat:@"%d × %d", w, h], @"note": note}];
-    };
-    add(W, H, @"This display (recommended)");
-    if (sc > 1.01) add((int)(W * sc + 0.5), (int)(H * sc + 0.5), @"Full Retina detail; the interface is drawn very small");
-    static const int std[][2] = {{2560,1600},{2560,1440},{1920,1200},{1920,1080},{1680,1050},{1600,900},{1440,900},{1366,768},{1280,800},{1280,720},{1024,768},{800,600}};
-    for (size_t k = 0; k < sizeof std / sizeof *std; k++) if (std[k][0] <= W && std[k][1] <= H) add(std[k][0], std[k][1], @"Scaled to fill the screen");
-    return a;
-}
-static NSArray<NSDictionary *> *distance_choices(void)
-{
-    return @[@{@"value": @"100", @"label": @"Original", @"note": @"As the game shipped"},
-             @{@"value": @"125", @"label": @"Far", @"note": @"125% of the original"},
-             @{@"value": @"150", @"label": @"Farther", @"note": @"150%, like the SeeFar mods"},
-             @{@"value": @"200", @"label": @"Very Far", @"note": @"200% of the original"},
-             @{@"value": @"250", @"label": @"Horizon", @"note": @"250%; heavier in large outdoor areas"},
-             @{@"value": @"300", @"label": @"Maximum", @"note": @"300%; may slow down in the biggest vistas"}];
-}
-/* ---- the game's own graphics options (its Options > Video page), kept in the game's Save/prefs.gas: read when the window
- * opens and written when Play is pressed, so they're set here and the in-game page needn't be used ---- */
-static NSString *prefs_path(NSString *data)
-{
-    return [data stringByAppendingPathComponent:@"drive_c/Users/player/Documents/My Games/Dungeon Siege 2/Save/prefs.gas"];
-}
-static NSString *prefs_get(NSString *path, NSString *key)          /* "key = value;" in the [prefs] block */
-{
-    NSString *t = [NSString stringWithContentsOfFile:path encoding:NSISOLatin1StringEncoding error:nil]; if (!t) return nil;
-    NSRegularExpression *re = [NSRegularExpression regularExpressionWithPattern:[NSString stringWithFormat:@"^[ \\t]*%@[ \\t]*=[ \\t]*([^;\\r\\n]*);", key]
-                                                                        options:NSRegularExpressionAnchorsMatchLines error:nil];
-    NSTextCheckingResult *m = [re firstMatchInString:t options:0 range:NSMakeRange(0, t.length)];
-    return m ? [[t substringWithRange:[m rangeAtIndex:1]] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet] : nil;
-}
-static void prefs_set(NSString *path, NSDictionary<NSString *, NSString *> *kv)
-{
-    NSMutableString *t = [[NSString stringWithContentsOfFile:path encoding:NSISOLatin1StringEncoding error:nil] mutableCopy];
-    NSString *nl = !t || [t containsString:@"\r\n"] ? @"\r\n" : @"\n";
-    if (!t) t = [NSMutableString stringWithFormat:@"[prefs]%@{%@}%@", nl, nl, nl];
-    for (NSString *key in kv) {
-        NSRegularExpression *re = [NSRegularExpression regularExpressionWithPattern:[NSString stringWithFormat:@"^([ \\t]*%@[ \\t]*=[ \\t]*)[^;\\r\\n]*;", key]
-                                                                            options:NSRegularExpressionAnchorsMatchLines error:nil];
-        NSTextCheckingResult *m = [re firstMatchInString:t options:0 range:NSMakeRange(0, t.length)];
-        if (m) { [t replaceCharactersInRange:m.range withString:[NSString stringWithFormat:@"%@%@;", [t substringWithRange:[m rangeAtIndex:1]], kv[key]]]; continue; }
-        NSRange open = [t rangeOfString:@"{"];                              /* the [prefs] block's opening brace */
-        if (open.location == NSNotFound) continue;
-        [t insertString:[NSString stringWithFormat:@"%@\t%@ = %@;", nl, key, kv[key]] atIndex:NSMaxRange(open)];
-    }
-    [NSFileManager.defaultManager createDirectoryAtPath:path.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:nil];
-    [t writeToFile:path atomically:YES encoding:NSISOLatin1StringEncoding error:nil];
-}
-/* shaders and shadows: the game picks its own default for the graphics card (config/system_detail.gas) until one is
- * chosen; that is the "Game's Choice" entry, never written to prefs.gas */
-static NSDictionary *game_choice(void) { return @{@"value": @"auto", @"label": @"Game's Choice", @"note": @"Until one is chosen, the game picks for the graphics card"}; }
-static NSArray<NSDictionary *> *shader_choices(void)
-{
-    return @[@{@"value": @"none", @"label": @"Off", @"note": @"No shader effects"},
-             @{@"value": @"standard", @"label": @"Standard", @"note": @"Water, glow and heat shimmer"},
-             @{@"value": @"advanced", @"label": @"Advanced", @"note": @"Every effect, with water reflections (recommended)"}];
-}
-static NSArray<NSDictionary *> *game_shadow_choices(void)
-{
-    return @[@{@"value": @"none", @"label": @"Off", @"note": @"No character shadows"},
-             @{@"value": @"simple", @"label": @"Simple", @"note": @"Round shadows under everyone"},
-             @{@"value": @"complex_party", @"label": @"Party Complex", @"note": @"True shadows for your party (as the game shipped)"},
-             @{@"value": @"complex", @"label": @"All Complex", @"note": @"True shadows for every character"}];
-}
-static NSArray<NSDictionary *> *filtering_choices(void)
-{
-    return @[@{@"value": @"bilinear", @"label": @"Bilinear", @"note": @"As the game shipped"},
-             @{@"value": @"trilinear", @"label": @"Trilinear", @"note": @"Smoother distant textures (recommended)"}];
-}
-static NSArray<NSDictionary *> *detail_choices(void)
-{
-    return @[@{@"value": @"0.000000", @"label": @"Lowest", @"note": @"The fewest small objects"},
-             @{@"value": @"0.250000", @"label": @"Low", @"note": @"A quarter of the small scenery"},
-             @{@"value": @"0.500000", @"label": @"Medium", @"note": @"Half of the small scenery"},
-             @{@"value": @"0.750000", @"label": @"High", @"note": @"Most of the small scenery"},
-             @{@"value": @"1.000000", @"label": @"Full", @"note": @"Everything (as the game shipped)"}];
-}
-static NSArray<NSDictionary *> *gamma_choices(void)    /* the in-game slider's range in steps: 0.5 to 1.5 */
-{
-    NSMutableArray *a = [NSMutableArray array];
-    for (int k = 0; k <= 10; k++) {
-        double g = 0.5 + k / 10.0;
-        [a addObject:@{@"value": [NSString stringWithFormat:@"%f", g], @"label": [NSString stringWithFormat:@"%.1f", g],
-                       @"note": k == 5 ? @"As the game shipped" : k < 5 ? @"Darker" : @"Brighter"}];
-    }
-    return a;
-}
-/* a row's index for a value from prefs.gas: numbers compared as numbers; a value not offered becomes a "Custom" choice */
-static NSInteger pref_index(DSRow *r, NSString *v, NSInteger dflt)
-{
-    if (!v.length) return dflt;
-    for (NSUInteger k = 0; k < r.choices.count; k++) {
-        NSString *c = r.choices[k][@"value"];
-        if ([c isEqualToString:v] || (isdigit([c characterAtIndex:0]) && fabs(c.doubleValue - v.doubleValue) < 0.005)) return (NSInteger)k;
-    }
-    NSString *shown = isdigit([v characterAtIndex:0]) ? [NSString stringWithFormat:@"%.2f", v.doubleValue] : v;
-    r.choices = [r.choices arrayByAddingObject:@{@"value": v, @"label": [NSString stringWithFormat:@"Custom (%@)", shown], @"note": @"Set in the game's own options"}];
-    return (NSInteger)r.choices.count - 1;
-}
-/* the Game row: the game, or the Test Lab (the game beside the lab's controls, with copies of the saves) */
-static NSArray<NSDictionary *> *mode_choices(void)
-{
-    return @[@{@"value": @"game", @"label": @"Dungeon Siege II", @"note": @"The campaign, and multiplayer from the main menu"},
-             @{@"value": @"lab", @"label": @"Test Lab", @"note": @"The game beside the lab's controls, with copies of your saves"}];
-}
-static NSArray<NSDictionary *> *framerate_choices(void)
-{
-    NSInteger hz = NSScreen.mainScreen.maximumFramesPerSecond; if (hz <= 0) hz = 60;
-    NSMutableArray *a = [NSMutableArray arrayWithObject:@{@"value": @"auto", @"label": @"Automatic",
-        @"note": hz >= 120 ? @"Smooth 120 fps, 60 fps in the heaviest scenes" : @"Matches the display"}];
-    if (hz >= 120) [a addObject:@{@"value": @"120", @"label": @"120 FPS", @"note": @"Locked to 120"}];
-    [a addObject:@{@"value": @"60", @"label": @"60 FPS", @"note": @"Locked to 60; cooler and quieter"}];
-    [a addObject:@{@"value": @"30", @"label": @"30 FPS", @"note": @"Saves battery"}];
-    [a addObject:@{@"value": @"unlimited", @"label": @"Unlimited", @"note": @"No cap and no vertical sync (may tear)"}];
-    return a;
-}
-/* ---- the CD key for online play ----
- * The game presents a "DoubleHash" of the player's product key to the GameSpy (now OpenSpy) lobby. The retail
- * installer derived it from the key; digital releases never ran that installer. As its Setup.exe does: the 25
- * characters read as a base-24 number over BCDFGHJKMPQRTVWXY2346789 into 15 little-endian bytes, SHA-1 of those,
- * SHA-1 of the digest, the first 8 bytes. Only the hash is stored (<data>/cdkey-hash.txt; the runtime puts it in the
- * registry, registry.c), never the key. Same computation as install.sh --cd-key. */
-static BOOL cdkey_hash(NSString *key, uint8_t out[8])
-{
-    static const char A[] = "BCDFGHJKMPQRTVWXY2346789";
-    NSString *k = [[[key uppercaseString] stringByReplacingOccurrencesOfString:@"-" withString:@""] stringByReplacingOccurrencesOfString:@" " withString:@""];
-    if (k.length != 25) return NO;
-    uint8_t buf[15] = {0}; int top = 0;
-    for (NSUInteger i = 0; i < 25; i++) {
-        unichar ch = [k characterAtIndex:i]; const char *p = ch < 128 ? strchr(A, (char)ch) : NULL;
-        if (!p || !ch) return NO;
-        unsigned c = (unsigned)(p - A);
-        for (int j = 0; j <= top; j++) { unsigned v = buf[j] * 24u + c; buf[j] = (uint8_t)v; c = v >> 8; }
-        if (c) { if (top + 1 >= 15) return NO; buf[++top] = (uint8_t)c; }
-    }
-    uint8_t d1[CC_SHA1_DIGEST_LENGTH], d2[CC_SHA1_DIGEST_LENGTH];
-    CC_SHA1(buf, sizeof buf, d1); CC_SHA1(d1, sizeof d1, d2);
-    memcpy(out, d2, 8); return YES;
-}
-static NSString *cdkey_path(NSString *data) { return [data stringByAppendingPathComponent:@"cdkey-hash.txt"]; }
-static BOOL cdkey_present(NSString *data) { return [NSFileManager.defaultManager fileExistsAtPath:cdkey_path(data)]; }
-static NSArray<NSDictionary *> *cdkey_choice(NSString *data)
-{
-    return cdkey_present(data) ? @[@{@"value": @"set", @"label": @"CD Key Entered", @"note": @"Online play ready · press to change it"}]
-                               : @[@{@"value": @"none", @"label": @"No CD Key", @"note": @"Needed for online play · press to enter your own"}];
-}
-/* the entry box; returns YES when the stored key changed */
-static BOOL cdkey_panel(NSString *data)
-{
-    for (NSString *problem = nil;;) {
-        NSAlert *a = [NSAlert new];
-        a.messageText = problem ?: @"Your Dungeon Siege II CD Key";
-        a.informativeText = @"The 25-character product key of your own original retail copy (the sticker under disc 1 in the box), for online play. "
-                             "The Steam and GOG releases come without one. "
-                             "Each copy needs its own key: the same key can't be online twice at once. Only a hash of it is kept on this Mac.";
-        NSSecureTextField *f = [[NSSecureTextField alloc] initWithFrame:NSMakeRect(0, 0, 320, 24)];
-        f.placeholderString = @"XXXXX-XXXXX-XXXXX-XXXXX-XXXXX"; a.accessoryView = f;
-        [a addButtonWithTitle:@"Save"]; [a addButtonWithTitle:@"Cancel"];
-        BOOL had = cdkey_present(data); if (had) [a addButtonWithTitle:@"Remove Key"];
-        a.window.initialFirstResponder = f;
-        NSModalResponse r = [a runModal];
-        if (r == NSAlertSecondButtonReturn) return NO;
-        if (r == NSAlertThirdButtonReturn) { [NSFileManager.defaultManager removeItemAtPath:cdkey_path(data) error:nil]; return YES; }
-        uint8_t h[8];
-        if (!cdkey_hash(f.stringValue, h)) { problem = @"That isn't a product key: it has 25 letters and digits (no vowels, 0, 1 or 5)."; continue; }
-        NSMutableString *hex = [NSMutableString string]; for (int i = 0; i < 8; i++) [hex appendFormat:@"%02x", h[i]];
-        [NSFileManager.defaultManager createDirectoryAtPath:data withIntermediateDirectories:YES attributes:nil error:nil];
-        [[hex stringByAppendingString:@"\n"] writeToFile:cdkey_path(data) atomically:YES encoding:NSASCIIStringEncoding error:nil];
-        [NSFileManager.defaultManager setAttributes:@{NSFilePosixPermissions: @0600} ofItemAtPath:cdkey_path(data) error:nil];
-        return YES;
-    }
+    return @[@{@"value": @"sharp", @"label": @"Sharp", @"note": @"Crisp square pixels, smooth only at their edges"},
+             @{@"value": @"smooth", @"label": @"Smooth", @"note": @"Bilinear: soft, like a flat panel at a lower resolution"},
+             @{@"value": @"pixel", @"label": @"Pixel", @"note": @"Nearest pixel: hard edges, uneven sizes"},
+             @{@"value": @"crt", @"label": @"CRT", @"note": @"Sharp, with the scanlines of a 2000-era monitor"}];
 }
 static NSInteger index_of(NSArray<NSDictionary *> *c, NSString *v, NSInteger dflt)
 {
@@ -579,12 +337,11 @@ static NSInteger index_of(NSArray<NSDictionary *> *c, NSString *v, NSInteger dfl
     return dflt;
 }
 /* the chosen settings as environment for the runtime (read later at start-up) */
-static void apply(NSString *res, NSString *dist, NSString *fps)
+static void apply(NSString *video, NSString *scaling, NSString *notch)
 {
-    setenv("DS_RESOLUTION", res.UTF8String, 1);
-    setenv("DS_DRAW_DISTANCE", dist.UTF8String, 1);
-    if ([fps isEqualToString:@"unlimited"]) { setenv("DSR_FPSCAP", "0", 1); setenv("DSR_VSYNC", "0", 1); }
-    else setenv("DSR_FPSCAP", fps.UTF8String, 1);
+    setenv("D2_RENDERER", video.UTF8String, 1);
+    setenv("DSR_FILTER", scaling.UTF8String, 1);
+    setenv("DS_NOTCH", notch.UTF8String, 1);
 }
 @interface DSBlockTarget : NSObject      /* a button action as a block */
 @property (copy) void (^fire)(NSInteger tag);
@@ -692,47 +449,19 @@ static BOOL update_run(NSWindow *parent, NSString *updater, NSString *branch, NS
     return ok;
 }
 
-/* Shows the launch window (modal) unless DS_NO_LAUNCHER is set; returns 0 to quit, 1 to play, 2/3 for the Test Lab.
+/* Shows the launch window (modal) unless DS_NO_LAUNCHER is set; returns 0 to quit, 1 to play.
  * DS_LAUNCHER_SHOT=<png> renders it to an image instead (development; DS_LAUNCHER_PAGE: a group opened). */
 int ds_launcher_run(const char *game_dir, const char *data_dir)
 {
+    (void)game_dir;
     NSString *data = @(data_dir), *plistPath = [data stringByAppendingPathComponent:@"launcher.plist"];
     NSDictionary *saved = [NSDictionary dictionaryWithContentsOfFile:plistPath] ?: @{};
-    DSRow *res = [DSRow new], *dist = [DSRow new], *fps = [DSRow new], *mode = [DSRow new];
+    DSRow *video = [DSRow new]; video.title = @"Video"; video.choices = video_choices(); video.index = index_of(video.choices, saved[@"video"], 0);
+    DSRow *scale = [DSRow new]; scale.title = @"Scaling"; scale.choices = scaling_choices(); scale.index = index_of(scale.choices, saved[@"scaling"], 0);
     DSRow *notch = [DSRow new]; notch.title = @"Notch"; notch.choices = notch_choices(); notch.index = index_of(notch.choices, saved[@"notch"], 0);
-    BOOL (^below)(void) = ^BOOL { return ![notch.choices[notch.index][@"value"] isEqualToString:@"around"]; };
-    res.title = @"Resolution"; res.choices = resolution_choices(below()); res.index = index_of(res.choices, saved[@"resolution"], 0);
-    DSRow *ui = [DSRow new]; ui.title = @"Interface Size"; ui.choices = ui_choices(res.choices[res.index][@"value"]); ui.index = index_of(ui.choices, saved[@"interfaceSize"], 0);
-    dist.title = @"View Distance"; dist.choices = distance_choices(); dist.index = index_of(dist.choices, saved[@"viewDistance"], 0);
-    fps.title = @"Frame Rate"; fps.choices = framerate_choices(); fps.index = index_of(fps.choices, saved[@"frameRate"], 0);
-    mode.title = @"Game"; mode.choices = mode_choices(); mode.index = 0;   /* the Test Lab is chosen each time, not remembered */
-    /* the game's own graphics options, from its prefs.gas */
-    DSRow *shad = [DSRow new], *gsh = [DSRow new], *flt = [DSRow new], *det = [DSRow new], *gam = [DSRow new];
-    shad.title = @"Shaders"; gsh.title = @"Shadows"; flt.title = @"Texture Filtering"; det.title = @"Object Detail"; gam.title = @"Gamma";
-    NSArray<DSRow *> *prefRows = @[shad, gsh, flt, det, gam];
-    NSArray<NSString *> *prefKeys = @[@"shaders", @"video_shadows", @"texture_filtering", @"object_detail_level", @"video_gamma"];
-    NSArray *(^prefChoices)(NSInteger) = ^NSArray *(NSInteger k) { return k == 0 ? shader_choices() : k == 1 ? game_shadow_choices() : k == 2 ? filtering_choices() : k == 3 ? detail_choices() : gamma_choices(); };
-    NSArray<NSNumber *> *prefDefault = @[@-1, @-1, @0, @4, @5];      /* as the game shipped (config/options.gas); -1: the game's choice */
-    NSString *pp = prefs_path(data); NSMutableDictionary *prefRead = [NSMutableDictionary dictionary];
-    for (NSInteger k = 0; k < (NSInteger)prefRows.count; k++) {
-        DSRow *row = prefRows[k]; NSString *v = prefs_get(pp, prefKeys[k]); if (v) prefRead[prefKeys[k]] = v;
-        row.choices = prefChoices(k);
-        if (prefDefault[k].integerValue < 0 && !v) { row.choices = [@[game_choice()] arrayByAddingObjectsFromArray:row.choices]; row.index = 0; }
-        else row.index = pref_index(row, v, MAX(prefDefault[k].integerValue, 0));
-    }
-    void (^prefsSave)(void) = ^{                                    /* only what was changed; a new player's file is left to the game */
-        NSMutableDictionary *ch = [NSMutableDictionary dictionary];
-        for (NSInteger k = 0; k < (NSInteger)prefRows.count; k++) {
-            NSString *now = prefRows[k].choices[prefRows[k].index][@"value"], *was = prefRead[prefKeys[k]];
-            if (!was) was = prefDefault[k].integerValue < 0 ? @"auto" : prefChoices(k)[prefDefault[k].integerValue][@"value"];
-            if (![now isEqualToString:@"auto"] && ![now isEqualToString:was]) ch[prefKeys[k]] = now;
-        }
-        if (ch.count) prefs_set(pp, ch);
-    };
     const char *shot = getenv("DS_LAUNCHER_SHOT");
     if (getenv("DS_NO_LAUNCHER") && !shot) {
-        if (saved.count) { apply(res.choices[res.index][@"value"], dist.choices[dist.index][@"value"], fps.choices[fps.index][@"value"]); apply_notch(notch.choices[notch.index][@"value"]);
-                         apply_ui(res.choices[res.index][@"value"], ui.choices[ui.index][@"value"]); }
+        if (saved.count) apply(video.choices[video.index][@"value"], scale.choices[scale.index][@"value"], notch.choices[notch.index][@"value"]);
         return 1;
     }
 
@@ -743,29 +472,13 @@ int ds_launcher_run(const char *game_dir, const char *data_dir)
     __block int ustate = updater ? UPD_CHECKING : UPD_NONE; __block NSString *latest = nil;
     upd.choices = update_choice(ustate, branch, built, nil);
     BOOL shotMode = shot != NULL;
-    DSRow *online = [DSRow new]; online.title = @"Online"; online.choices = cdkey_choice(data);
-    DSSection *display = [DSSection new], *graphics = [DSSection new], *onlineSec = [DSSection new], *updSec = [DSSection new];
-    display.title = @"Display"; display.rows = notch_height() > 0 ? @[res, ui, notch, fps, dist, gam] : @[res, ui, fps, dist, gam];
-    graphics.title = @"Graphics"; graphics.rows = @[shad, gsh, flt, det];
-    onlineSec.title = @"Online"; onlineSec.summary = ^NSString * { NSDictionary *c = online.choices[online.index]; return [NSString stringWithFormat:@"%@ · LAN games need no key", c[@"label"]]; };
+    DSSection *display = [DSSection new], *updSec = [DSSection new];
+    display.title = @"Display"; display.rows = notch_height() > 0 ? @[scale, notch] : @[scale];
     updSec.title = @"Updates"; updSec.summary = ^NSString * { NSDictionary *c = upd.choices[upd.index]; return [c[@"note"] length] ? [NSString stringWithFormat:@"%@ · %@", c[@"label"], c[@"note"]] : c[@"label"]; };
-    DSLaunchView *v = [[DSLaunchView alloc] initWithFrame:NSMakeRect(0, 0, 780, 760)];
-    v.top = @[mode]; v.sections = @[display, graphics, onlineSec, updSec]; v.open = -1; v.hover = v.pressed = HIT_NONE;
-    __weak DSLaunchView *wv = v; __weak DSRow *wu = upd, *wo = online;
-    onlineSec.activate = ^{ if (cdkey_panel(data)) wo.choices = cdkey_choice(data); };
+    DSLaunchView *v = [[DSLaunchView alloc] initWithFrame:NSMakeRect(0, 0, 780, 620)];
+    v.top = @[video]; v.sections = @[display, updSec]; v.open = -1; v.hover = v.pressed = HIT_NONE;
+    __weak DSLaunchView *wv = v; __weak DSRow *wu = upd;
     updSec.activate = ^{ if (wu.activate) wu.activate(); };
-    __block BOOL wasBelow = below();
-    v.onChange = ^{
-        if (below() != wasBelow) {                                  /* the Notch row: "This display" changes size */
-            NSString *cur = res.choices[res.index][@"value"]; wasBelow = below();
-            res.choices = resolution_choices(wasBelow); res.index = index_of(res.choices, cur, 0);
-        }
-        {   /* the Resolution row: which interface sizes fit (the largest that still does, if the chosen one no longer fits) */
-            NSString *cur = ui.choices[ui.index][@"value"]; ui.choices = ui_choices(res.choices[res.index][@"value"]);
-            NSInteger k = (NSInteger)ui.choices.count - 1; while (k > 0 && [ui.choices[k][@"value"] intValue] > cur.intValue) k--;
-            ui.index = k;
-        }
-    };
     void (^check)(void) = ^{
         if (!updater) return;
         ustate = UPD_CHECKING; wu.choices = update_choice(ustate, branch, built, nil); wv.needsDisplay = YES;
@@ -795,26 +508,14 @@ int ds_launcher_run(const char *game_dir, const char *data_dir)
         }
         check();
     };
-    NSString *tank = [@(game_dir) stringByAppendingPathComponent:@"Resources/Objects.ds2res"], *m = @"art/bitmaps/gui/front_end/main/b_gui_fe_mn_";
-    NSImage *(^art)(NSString *, BOOL) = ^NSImage *(NSString *name, BOOL trim) {
-        CGImageRef img = dds_image(tank_read(tank, [[m stringByAppendingString:name] stringByAppendingString:@".dds"]));
-        NSImage *r = img ? nsimg(img, trim ? opaque_bounds(img) : CGRectZero) : nil; if (img) CGImageRelease(img); return r;
-    };
-    {   /* the main menu's backdrop: eight 256x256 tiles, four across and two down */
-        NSImage *bg = [[NSImage alloc] initWithSize:NSMakeSize(1024, 512)]; BOOL any = NO;
-        [bg lockFocusFlipped:YES];
-        [[NSColor colorWithSRGBRed:0.13 green:0.02 blue:0.01 alpha:1] setFill]; NSRectFill(NSMakeRect(0, 0, 1024, 512));   /* under the tiles' see-through parts */
-        for (int k = 0; k < 8; k++) { NSImage *t = art([NSString stringWithFormat:@"back%02d", k + 1], NO);
-            if (t) { any = YES; [t drawInRect:NSMakeRect(256 * (k % 4), 256 * (k / 4), 256, 256) fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1 respectFlipped:YES hints:nil]; } }
-        [bg unlockFocus];
-        v.stone = any ? bg : nil;
-    }
-    v.logo = art(@"logo", YES);
-    v.wood = art(@"menubar-up", YES); v.woodHover = art(@"menubar-over", YES); v.woodDown = art(@"menubar-down", YES);
-    NSImage *banner = [[NSImage alloc] initWithContentsOfFile:[data stringByAppendingPathComponent:@"art/banner.jpg"]];   /* install.sh: the game's key art */
-    if (banner.size.width > 400) v.banner = banner;
+    /* the game's own art, decoded at install time (tools/d2art.py): the main menu's backdrop and the logo */
+    NSString *art = [data stringByAppendingPathComponent:@"art"];
+    NSImage *backdrop = [[NSImage alloc] initWithContentsOfFile:[art stringByAppendingPathComponent:@"backdrop.png"]];
+    NSImage *logo = [[NSImage alloc] initWithContentsOfFile:[art stringByAppendingPathComponent:@"logo.png"]];
+    if (backdrop.size.width > 100) v.stone = backdrop;
+    if (logo.size.width > 100) v.logo = logo;
     if (shot) {   /* development: the window as an image (DS_LAUNCHER_PAGE: a group opened) */
-        if (getenv("DS_LAUNCHER_PAGE")) v.open = atoi(getenv("DS_LAUNCHER_PAGE"));
+        if (getenv("DS_LAUNCHER_PAGE") && *getenv("DS_LAUNCHER_PAGE")) v.open = atoi(getenv("DS_LAUNCHER_PAGE"));
         NSBitmapImageRep *rep = [v bitmapImageRepForCachingDisplayInRect:v.bounds]; [v cacheDisplayInRect:v.bounds toBitmapImageRep:rep];
         [[rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:@(shot) atomically:YES];
         return 0;
@@ -823,23 +524,10 @@ int ds_launcher_run(const char *game_dir, const char *data_dir)
     NSWindow *w = [[NSWindow alloc] initWithContentRect:v.frame styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskFullSizeContentView
                                                 backing:NSBackingStoreBuffered defer:NO];
     w.releasedWhenClosed = NO;   /* ARC owns it: AppKit's default would release it again when the close button closes it (a crash on exit) */
-    w.titlebarAppearsTransparent = YES; w.titleVisibility = NSWindowTitleHidden; w.movableByWindowBackground = YES; w.title = @"Dungeon Siege II";
+    w.titlebarAppearsTransparent = YES; w.titleVisibility = NSWindowTitleHidden; w.movableByWindowBackground = YES; w.title = @"Diablo II";
     w.backgroundColor = NSColor.blackColor; w.contentView = v; [w center]; [w makeFirstResponder:v];
     __block int result = 0;
-    v.onPlay = ^{
-        if (![mode.choices[mode.index][@"value"] isEqualToString:@"lab"]) { result = 1; [NSApp stopModal]; return; }
-        /* the Test Lab: 2 with its saves as they are; 3 with fresh copies of the single-player saves first */
-        NSString *saves = [data stringByAppendingPathComponent:@"test-lab/drive_c/Users/player/Documents/My Games/Dungeon Siege 2/Save/SinglePlayer"];
-        BOOL have = [NSFileManager.defaultManager fileExistsAtPath:saves];
-        NSAlert *a = [NSAlert new]; a.messageText = @"Start the Test Lab?";
-        a.informativeText = have ? @"The game opens in a window beside the Test Lab's controls, with the lab's own copies of your single-player saves (yours are never changed). "
-                                    "Fresh copies replace the lab's saves with your current ones; the earlier lab saves are kept in test-lab/save-backups."
-                                 : @"The game opens in a window beside the Test Lab's controls. Your single-player saves are copied for the lab first; yours are never changed.";
-        [a addButtonWithTitle:@"Start"]; if (have) [a addButtonWithTitle:@"Fresh Save Copies, Then Start"]; [a addButtonWithTitle:@"Cancel"];
-        NSModalResponse r = [a runModal];
-        if (r == NSAlertFirstButtonReturn) result = have ? 2 : 3; else if (have && r == NSAlertSecondButtonReturn) result = 3; else return;
-        [NSApp stopModal];
-    };
+    v.onPlay = ^{ result = 1; [NSApp stopModal]; };
     v.onQuit = ^{ result = 0; [NSApp stopModal]; };
     [[NSNotificationCenter defaultCenter] addObserverForName:NSWindowWillCloseNotification object:w queue:nil usingBlock:^(NSNotification *n) { (void)n; [NSApp stopModal]; }];
     [NSApp activateIgnoringOtherApps:YES];
@@ -847,11 +535,8 @@ int ds_launcher_run(const char *game_dir, const char *data_dir)
     [NSApp runModalForWindow:w];
     [w orderOut:nil];
     if (!result) return 0;
-    NSString *rv = res.choices[res.index][@"value"], *fv = fps.choices[fps.index][@"value"];
-    NSString *dv = dist.choices[dist.index][@"value"];
-    NSString *nv = notch.choices[notch.index][@"value"], *uv = ui.choices[ui.index][@"value"];
-    [@{@"resolution": rv, @"viewDistance": dv, @"frameRate": fv, @"notch": nv, @"interfaceSize": uv} writeToFile:plistPath atomically:YES];
-    prefsSave();
-    apply(rv, dv, fv); apply_notch(nv); apply_ui(rv, uv);
+    NSString *vv = video.choices[video.index][@"value"], *sv = scale.choices[scale.index][@"value"], *nv = notch.choices[notch.index][@"value"];
+    [@{@"video": vv, @"scaling": sv, @"notch": nv} writeToFile:plistPath atomically:YES];
+    apply(vv, sv, nv);
     return result;
 }
