@@ -84,15 +84,23 @@ def to_hero_select(g):
     time.sleep(max(0.5, 5 - (time.time() - g.t0)))
     for _ in range(5): g.send('click:400,300', 3)
 
-def peek(g, chain):
-    """a 32-bit value through a chain of pointers ("7a6a70,2c,1c"), read by the running game's host; None if not answered"""
-    n0 = sum(1 for l in open(g.log) if 'peek ' + chain + ' =' in l)
-    g.send('peek:' + chain, 0)
-    for _ in range(40):
-        hits = [l for l in open(g.log) if 'peek ' + chain + ' =' in l]
-        if len(hits) > n0: return int(hits[-1].split('= 0x')[1][:8], 16)
+def peek_many(g, chains):
+    """32-bit values through chains of pointers ("7a6a70,2c,1c"), read by the running game's peek thread (it reads
+    <data>/peek.txt every quarter second, all new lines at once); None for any not answered"""
+    if not chains: return []
+    log = g.log; start = os.path.getsize(log)
+    with open(os.path.join(g.dir, 'peek.txt'), 'a') as f: f.write(''.join(c + '\n' for c in chains))
+    want = {c: None for c in chains}; left = set(chains)
+    for _ in range(60):
         time.sleep(0.1)
-    return None
+        with open(log, 'rb') as f: f.seek(start); text = f.read().decode('latin-1')
+        for l in text.split('\n'):
+            if 'peek ' in l and ' = 0x' in l:
+                c = l.split('peek ', 1)[1].split(' = ')[0]
+                if c in left: want[c] = int(l.split('= 0x')[1][:8], 16); left.discard(c)
+        if not left: break
+    return [want[c] for c in chains]
+def peek(g, chain): return peek_many(g, [chain])[0]
 def area(g):
     """the area the player is in (the level number: 1 Rogue Encampment, 40 Lut Gholein, 75 Kurast Docks, 103 Pandemonium
     Fortress, 109 Harrogath), or None outside a game"""
