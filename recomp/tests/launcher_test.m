@@ -1,4 +1,4 @@
-// The launch window: its settings reach the runtime (D2_RENDERER, DSR_FILTER, DS_NOTCH) and are remembered in
+// The launch window: its settings reach the runtime (D2_RENDERER, D2_PERSPECTIVE, DSR_FILTER, DS_NOTCH) and are remembered in
 // launcher.plist; it draws with the game's art from <data>/art (or without it) at the expected size.
 //   clang -fobjc-arc -framework AppKit -framework Metal -framework ImageIO -lz recomp/tests/launcher_test.m -o /tmp/launcher_test && /tmp/launcher_test [art folder]
 #include "../host/launcher.m"
@@ -14,13 +14,25 @@ int main(int argc, char **argv)
         NSString *dir = [NSTemporaryDirectory() stringByAppendingPathComponent:[NSUUID UUID].UUIDString];
         [NSFileManager.defaultManager createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
         /* no saved settings: nothing is applied (the runtime's defaults: DirectDraw, sharp) */
-        unsetenv("D2_RENDERER"); unsetenv("DSR_FILTER"); unsetenv("DS_NOTCH"); setenv("DS_NO_LAUNCHER", "1", 1);
+        unsetenv("D2_RENDERER"); unsetenv("D2_PERSPECTIVE"); unsetenv("DSR_FILTER"); unsetenv("DS_NOTCH"); setenv("DS_NO_LAUNCHER", "1", 1);
         CHECK(ds_launcher_run("/nonexistent", dir.UTF8String) == 1);
-        CHECK(env("D2_RENDERER") == nil && env("DSR_FILTER") == nil);
+        CHECK(env("D2_RENDERER") == nil && env("D2_PERSPECTIVE") == nil && env("DSR_FILTER") == nil);
         /* saved settings reach the runtime as environment */
         [@{@"video": @"gdi", @"scaling": @"crt", @"notch": @"around"} writeToFile:[dir stringByAppendingPathComponent:@"launcher.plist"] atomically:YES];
         CHECK(ds_launcher_run("/nonexistent", dir.UTF8String) == 1);
         CHECK([env("D2_RENDERER") isEqualToString:@"gdi"]); CHECK([env("DSR_FILTER") isEqualToString:@"crt"]); CHECK([env("DS_NOTCH") isEqualToString:@"around"]);
+        CHECK(env("D2_PERSPECTIVE") == nil);                                   /* no view saved: the game's choice */
+        /* Direct3D with each view: Isometric and Perspective are set at start, the game's choice leaves its option alone */
+        for (NSString *view in @[@"off", @"on", @"game"]) {
+            [@{@"video": @"d3d", @"view": view, @"scaling": @"sharp", @"notch": @"hide"} writeToFile:[dir stringByAppendingPathComponent:@"launcher.plist"] atomically:YES];
+            CHECK(ds_launcher_run("/nonexistent", dir.UTF8String) == 1);
+            CHECK([env("D2_RENDERER") isEqualToString:@"d3d"]);
+            CHECK([view isEqualToString:@"game"] ? env("D2_PERSPECTIVE") == nil : [env("D2_PERSPECTIVE") isEqualToString:view]);
+        }
+        /* the view is left to the game when Direct3D isn't the renderer */
+        [@{@"video": @"ddraw", @"view": @"on", @"scaling": @"sharp", @"notch": @"hide"} writeToFile:[dir stringByAppendingPathComponent:@"launcher.plist"] atomically:YES];
+        CHECK(ds_launcher_run("/nonexistent", dir.UTF8String) == 1);
+        CHECK([env("D2_RENDERER") isEqualToString:@"ddraw"] && env("D2_PERSPECTIVE") == nil);
         /* an unknown saved value falls back to the first choice */
         [@{@"video": @"glide", @"scaling": @"hq4x", @"notch": @"hide"} writeToFile:[dir stringByAppendingPathComponent:@"launcher.plist"] atomically:YES];
         CHECK(ds_launcher_run("/nonexistent", dir.UTF8String) == 1);

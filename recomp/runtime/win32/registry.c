@@ -108,6 +108,13 @@ void w32_registry_install(const char *data_dir)
             if (v && (!v->data || forced)) { uint32_t m = forced ? (uint32_t)atoi(forced) : 0; free(v->data); v->type = 4; v->size = 4; v->data = malloc(4); memcpy(v->data, &m, 4); }
         }
     }
+    /* Direct3D's view, when the launch window sets it (D2_PERSPECTIVE on/off): the game's Options -> Video -> Perspective */
+    {
+        const char *per = getenv("D2_PERSPECTIVE");
+        RKey *k = per && (!strcmp(per, "on") || !strcmp(per, "off")) ? lookup("hkcu\\software\\blizzard entertainment\\diablo ii", 1) : 0;
+        RVal *v = k ? val_put(k, "Perspective") : 0;
+        if (v) { uint32_t m = !strcmp(per, "on"); free(v->data); v->type = 4; v->size = 4; v->data = malloc(4); memcpy(v->data, &m, 4); }
+    }
     pthread_mutex_unlock(&rlock);
 }
 static void reg_seed(void)
@@ -152,6 +159,7 @@ IMPL(advapi32, RegQueryValueExA)
     uint32_t name = ARG(1), type = ARG(3), data = ARG(4), szp = ARG(5);
     RKey *k = key_of(ARG(0)); if (!k) RET(6, 6);
     const char *n = name ? GS(name) : "";
+    if (getenv("W32_REGLOG")) fprintf(stderr, "w32: registry read %s\\%s\n", k->path, n);
     for (int j = 0; j < k->nv; j++) if (!strcasecmp(k->v[j].name, n)) {
         RVal *v = &k->v[j];
         if (type) rt_w32(G_MEM, type, v->type);
@@ -169,6 +177,7 @@ IMPL(advapi32, RegSetValueExA)
     uint32_t name = ARG(1), type = ARG(3), data = ARG(4), size = ARG(5);
     RKey *k = key_of(ARG(0)); if (!k) RET(6, 6);
     const char *n = name ? GS(name) : "";
+    if (getenv("W32_REGLOG")) fprintf(stderr, "w32: registry write %s\\%s (%u bytes, first %08x)\n", k->path, n, size, size >= 4 ? rt_r32(G_MEM, data) : 0);
     pthread_mutex_lock(&rlock);
     RVal *v = 0;
     for (int j = 0; j < k->nv; j++) if (!strcasecmp(k->v[j].name, n)) v = &k->v[j];

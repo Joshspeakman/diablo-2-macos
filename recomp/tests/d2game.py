@@ -7,8 +7,11 @@ CONFIG = {'app': None, 'exe': None, 'game': None, 'work': None}     # set by the
 PLAYER = '7a6a70'                                                     # 1.14d: the player's unit (a pointer)
 
 class Game:
-    def __init__(self, name, env=None):
+    def __init__(self, name, env=None, saves=()):
         self.dir = os.path.join(CONFIG['work'], name); os.makedirs(self.dir, exist_ok=True)
+        if saves:                                                     # characters to start with (copied into Saved Games)
+            sg = os.path.join(self.dir, 'drive_c', 'Users', 'player', 'Saved Games', 'Diablo II'); os.makedirs(sg, exist_ok=True)
+            for f in saves: open(os.path.join(sg, os.path.basename(f)), 'wb').write(open(f, 'rb').read())
         self.cmd = os.path.join(self.dir, 'cmd.txt'); open(self.cmd, 'w').close(); open(os.path.join(self.dir, 'peek.txt'), 'w').close()
         self.log = os.path.join(self.dir, 'run.log'); self.wav = os.path.join(self.dir, 'mix.wav'); self.shots = 0
         e = dict(os.environ, DS_TEST='1', W32_AUDIO_MUTE='1', DS_CMDFILE=self.cmd, DS_PEEKFILE=os.path.join(self.dir, 'peek.txt'),

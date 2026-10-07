@@ -17,7 +17,7 @@ void rt_hook(Ctx *c, uint32_t addr)
          * of the structure at ebp-0x4d8) and has just set d3d unless windowed: 1.14d always runs Direct3D full screen.
          * D2_RENDERER picks among the game's own renderers instead: "ddraw" (the default here: its DirectDraw renderer,
          * 8-bit software frames, the cinematics through Bink), "gdi" (its windowed mode; no cinematics there), "d3d"
-         * (the game's choice: Direct3D, which this port does not provide). */
+         * (the game's choice: its Direct3D renderer, on Metal through runtime/win32/ddraw_pal.c). */
         const char *r = getenv("D2_RENDERER"); uint32_t cfg = c->ebp - 0x4d8;
         if (r && !strcmp(r, "d3d")) break;
         int gdi = r && !strcmp(r, "gdi");

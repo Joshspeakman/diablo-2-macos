@@ -17,6 +17,8 @@ recorded sound and the files the game writes:
   save      Escape opens the menu; Save and Exit writes <Saved Games>/Diablo II/MacTest.d2s with a valid header
   load      Single Player lists MacTest; OK enters the game again with the HUD
   gdi       the game's windowed renderer (D2_RENDERER=gdi) reaches the main menu, also exactly through the palette
+  d3d       the game's Direct3D renderer (D2_RENDERER=d3d) in each view (D2_PERSPECTIVE off, on): a new character in
+            Act 1 with the HUD drawn, the game reading the view chosen, and the two views' pictures different
   tcpip     two instances: one hosts a TCP/IP game, the other joins it by this Mac's LAN address; both are in Act 1
             and the host's server has accepted the second player
 
@@ -39,6 +41,14 @@ ONLY = set(a.only.split(',')) if a.only else None
 d2game.CONFIG.update(app=a.app, exe=a.exe, game=a.game, work=WORK)
 results = []
 
+def save_and_exit(g):
+    """Escape until the game menu shows (its gold text), then Save and Exit Game; returns how much menu text was seen"""
+    menu = 0
+    for k in range(4):
+        g.send('key:27', 1.5); s = g.shot('menu%d' % k); menu = gold_fraction(s, (190, 245, 610, 275))
+        if menu > 0.04: break
+    g.send('click:400,259', 6)                                                               # Save and Exit Game
+    return menu
 def stage(name):
     return ONLY is None or name in ONLY
 def report(name, ok, detail):
@@ -88,11 +98,7 @@ try:
         s1 = g.shot('walk0'); g.send('click:700,150', 3); s2 = g.shot('walk1'); d = differs(s1, s2); ok2 = hud(s2)[0]
         report('walk', d > 0.2 and ok2, 'picture changed in %.0f%% of samples; HUD %s' % (100 * d, 'kept' if ok2 else 'lost'))
     if stage('save') or stage('load'):
-        menu = 0
-        for k in range(4):
-            g.send('key:27', 1.5); s = g.shot('menu%d' % k); menu = gold_fraction(s, (190, 245, 610, 275))
-            if menu > 0.04: break
-        g.send('click:400,259', 6)                                                           # Save and Exit Game
+        menu = save_and_exit(g)
         saves = glob.glob(os.path.join(g.dir, 'drive_c', '**', 'MacTest.d2s'), recursive=True)
         hdr = open(saves[0], 'rb').read() if saves else b''
         good = len(hdr) > 300 and struct.unpack_from('<I', hdr, 0)[0] == 0xaa55aa55 and struct.unpack_from('<I', hdr, 8)[0] == len(hdr) and b'MacTest' in hdr[:40]
@@ -113,6 +119,26 @@ try:
         report('gdi', pe is not None and pe > 0.999 and '800x600' in sizes and brightness(s) > 10,
                'windowed renderer: %s, palette-exact %.4f' % (sorted(sizes), pe or 0))
         g.stop()
+    # ---------------- the Direct3D renderer, in its isometric and perspective views ----------------
+    if stage('d3d'):
+        # one character in both views: made and saved in Direct3D, then loaded by a fresh game in each view (its town is
+        # laid out from the seed in its save, so the two pictures differ only by the view)
+        g = Game('d3d-make', {'D2_RENDERER': 'd3d'}); to_hero_select(g)
+        g.send('click:400,300', 2); g.send('type:MacView', 2); g.send('click:690,555', 12)          # the Barbarian, a name, OK
+        made = hud(g.shot('d3d-new'))[0]; save_and_exit(g); g.stop()
+        found = glob.glob(os.path.join(g.dir, 'drive_c', '**', 'MacView.d2s'), recursive=True)
+        if not found: raise RuntimeError('Direct3D: the character was not saved')
+        shots, notes, good = {}, ['new character: HUD %s' % ('drawn' if made else 'missing')], made
+        for view in ('off', 'on'):
+            g = Game('d3d-' + view, {'D2_RENDERER': 'd3d', 'D2_PERSPECTIVE': view}, saves=found[:1]); to_hero_select(g)
+            g.send('click:690,555', 12); shots[view] = s = g.shot('d3d-' + view)                      # OK: into Act 1
+            ok, life, mana = hud(s); reg = open(os.path.join(g.dir, 'registry.txt')).read()
+            chose = ('Perspective\t4\t%s' % ('01000000' if view == 'on' else '00000000')) in reg
+            good = good and ok and chose and g.alive() and lit_fraction(s) > 0.05
+            notes.append('%s: HUD %s, view %s' % ('perspective' if view == 'on' else 'isometric', 'drawn' if ok else 'missing', 'kept' if chose else 'not kept'))
+            g.stop()
+        d = differs(shots['off'], shots['on'])
+        report('d3d', good and d > 0.05, '%s; the same place differs in %.0f%% of samples' % ('; '.join(notes), 100 * d))
     # ---------------- TCP/IP: one instance hosts, another joins ----------------
     if stage('tcpip'):
         def to_tcpip(g):
