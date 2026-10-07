@@ -73,7 +73,8 @@ recomp/tests/run_tests.sh "/path/to/Diablo II"   # and the game end to end (afte
 - **Coverage** (`coverage_test.py`, about an hour; run it on its own): a character of every class is made through the
   menus, given every class skill (`tests/d2s.py` edits these scratch characters only), leaves town by its waypoint and
   casts each of its 30 skills, chosen through the game's own skill list in memory; then each act's town is loaded and
-  left by its waypoint (found among the map's presets) to the act's first destination, casting there. The game must
+  left by its waypoint (found among the map's presets) to the act's first destination, casting there; last, the
+  inventory, character, skill tree, quest log, automap and help are opened by their keys in the field. The game must
   keep running and each chosen skill must be the one selected.
 
   ```sh

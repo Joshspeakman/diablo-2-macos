@@ -21,6 +21,7 @@ ap.add_argument('--game', required=True); ap.add_argument('--app', default=os.pa
 ap.add_argument('--exe', default=os.path.join(ROOT, 'work/Game.exe')); ap.add_argument('--work', default=None)
 ap.add_argument('--classes', default=','.join(d2s.CLASSES)); ap.add_argument('--acts', default='1,2,3,4,5')
 ap.add_argument('--character', default=None, help='a .d2s for the acts (else the first class made)')
+ap.add_argument('--panels', default='1', help='0: skip the panels stage')
 a = ap.parse_args()
 if a.character: first = a.character
 WORK = a.work or os.path.join('/tmp', 'd2-coverage-%d' % os.getpid()); os.makedirs(WORK, exist_ok=True)
@@ -218,6 +219,26 @@ try:
         except Exception as e:
             report('act %d error' % act, False, repr(e))
             subprocess.run(['pkill', '-f', WORK], capture_output=True)   # its game, if still running
+    # ---- the game's panels, opened by their keys in the field and closed with Escape ----
+    if a.panels != '0' and 'first' in globals():
+        try:
+            g = load('panels', first, strong)
+            out = (take_waypoint(g, 1) or leave_town(g)) if area(g) == 1 else None
+            opened = []; base = g.shot('panels-none')
+            for key, what in ((ord('I'), 'inventory'), (ord('C'), 'character'), (ord('T'), 'skill tree'), (ord('Q'), 'quests'),
+                              (9, 'automap'), (ord('H'), 'help')):                # (single player has no party screen)
+                g.send('key:%d' % key, 1.2); s1 = g.shot('panel-%s' % what.replace(' ', '-'))
+                shown = gold_fraction(s1, (560, 5, 800, 60)) > gold_fraction(base, (560, 5, 800, 60)) + 0.004 if key == 9 else differs(base, s1) > 0.05
+                if shown and not fault(g): opened.append(what)   # the automap: its area name at the top right
+                g.send('key:%d' % (9 if key == 9 else 27), 1.2)
+                if key not in (9,):                                       # Escape closes a panel; one more would open the menu
+                    if gold_fraction(g.shot('closed'), (190, 245, 610, 275)) > 0.04: g.send('key:27', 1)
+            f = fault(g)
+            report('panels', out is not None and len(opened) == 6 and not f and alive_in_game(g),
+                   'opened %s in area %s%s' % (', '.join(opened), out, '; ' + f if f else ''))
+            g.stop()
+        except Exception as e:
+            report('panels error', False, repr(e)); subprocess.run(['pkill', '-f', WORK], capture_output=True)
 except Exception as e:
     report('error', False, repr(e))
 finally:
