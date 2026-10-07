@@ -22,7 +22,9 @@ ap.add_argument('--exe', default=os.path.join(ROOT, 'work/Game.exe')); ap.add_ar
 ap.add_argument('--classes', default=','.join(d2s.CLASSES)); ap.add_argument('--acts', default='1,2,3,4,5')
 ap.add_argument('--character', default=None, help='a .d2s for the acts (else the first class made)')
 ap.add_argument('--panels', default='1', help='0: skip the panels stage')
+ap.add_argument('--env', action='append', default=[], help='NAME=value for the game (e.g. D2_RENDERER=d3d D2_FPS=120); repeatable')
 a = ap.parse_args()
+GAME_ENV = dict(e.split("=", 1) for e in a.env)                     # settings for every game the test starts
 if a.character: first = a.character
 WORK = a.work or os.path.join('/tmp', 'd2-coverage-%d' % os.getpid()); os.makedirs(WORK, exist_ok=True)
 d2game.CONFIG.update(app=a.app, exe=a.exe, game=a.game, work=WORK)
@@ -157,20 +159,20 @@ def cast(g, skill_ptr):
     return chosen & 0xffff if chosen is not None else None
 
 def new_character(cls, name):
-    g = Game('make-' + cls, {}); time.sleep(5)
+    g = Game('make-' + cls, dict(GAME_ENV)); time.sleep(5)
     for _ in range(5): g.send('click:400,300', 3)                # videos, title, main menu -> Single Player
     g.send('click:%d,%d' % HERO_AT[cls], 2); g.send('type:' + name, 2); g.send('click:690,555', 12)
     ok = area(g) == 1
     g.send('key:27', 1.5)
     for _ in range(3):
-        if gold_fraction(g.shot('menu'), (190, 245, 610, 275)) > 0.04: break
+        if gold_fraction(g.shot('menu'), (190, 245, 610, 275)) > MENU_GOLD: break
         g.send('key:27', 1.5)
     g.send('click:400,259', 6); g.stop()
     f = os.path.join(saves(g), name + '.d2s')
     return f if ok and os.path.exists(f) else None
 def load(name, src, edit):
     c = d2s.D2S(open(src, 'rb').read()); edit(c)
-    g = Game('play-' + name, {}); os.makedirs(saves(g), exist_ok=True)
+    g = Game('play-' + name, dict(GAME_ENV)); os.makedirs(saves(g), exist_ok=True)
     open(os.path.join(saves(g), os.path.basename(src)), 'wb').write(c.save())
     time.sleep(5)
     for _ in range(5): g.send('click:400,300', 3)                # videos, title, main menu -> Single Player: the list
@@ -232,7 +234,7 @@ try:
                 if shown and not fault(g): opened.append(what)   # the automap: its area name at the top right
                 g.send('key:%d' % (9 if key == 9 else 27), 1.2)
                 if key not in (9,):                                       # Escape closes a panel; one more would open the menu
-                    if gold_fraction(g.shot('closed'), (190, 245, 610, 275)) > 0.04: g.send('key:27', 1)
+                    if gold_fraction(g.shot('closed'), (190, 245, 610, 275)) > MENU_GOLD: g.send('key:27', 1)
             f = fault(g)
             report('panels', out is not None and len(opened) == 6 and not f and alive_in_game(g),
                    'opened %s in area %s%s' % (', '.join(opened), out, '; ' + f if f else ''))

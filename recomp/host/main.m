@@ -649,6 +649,13 @@ int main(int argc, char **argv)
                 f = fmin(smooth ? f : floor(f), 4.0);
                 if (f > 1) { char v[16]; snprintf(v, sizeof v, "%.4f", f); setenv("DSR_RENDER_SCALE", v, 1); }
             }
+            /* Direct3D's frame rate (the launcher's Frame Rate row): D2_FPS a number, or "display" for its refresh rate */
+            const char *fps = getenv("D2_FPS");
+            if (fps && !strcmp(fps, "display")) {
+                long hz = 60; if (@available(macOS 12.0, *)) hz = NSScreen.mainScreen.maximumFramesPerSecond;
+                char v[16]; snprintf(v, sizeof v, "%ld", hz > 25 ? hz : 60); setenv("D2_FPS", v, 1);
+            }
+            if (!ren || strcmp(ren, "d3d")) unsetenv("D2_FPS");                 /* DirectDraw and windowed: the game's 25 */
         }
         w32_crash_init(data, DS_BUILD); w32_crash_thread("macOS UI thread");
         { void w32_registry_install(const char *); w32_registry_install(data); }   /* values the game's installer would have written */

@@ -352,6 +352,14 @@ static NSArray<NSDictionary *> *texture_choices(void)
     return @[@{@"value": @"sharp", @"label": @"Sharp", @"note": @"The original pixels, each an even square"},
              @{@"value": @"smooth", @"label": @"Smooth", @"note": @"Filtered: softer sprites and ground, no stair-steps"}];
 }
+/* Direct3D's frame rate (D2_FPS, runtime/win32/d2smooth.c): the game's 25, or more with movement blended between its ticks */
+static NSArray<NSDictionary *> *fps_choices(void)
+{
+    return @[@{@"value": @"25", @"label": @"Original", @"note": @"25 frames a second, as the game draws"},
+             @{@"value": @"60", @"label": @"60", @"note": @"Smooth movement between the game's 25 ticks"},
+             @{@"value": @"120", @"label": @"120", @"note": @"Smoother still, for 120 Hz displays"},
+             @{@"value": @"display", @"label": @"Display", @"note": @"The display's own refresh rate"}];
+}
 static NSInteger index_of(NSArray<NSDictionary *> *c, NSString *v, NSInteger dflt)
 {
     for (NSUInteger k = 0; k < c.count; k++) if ([c[k][@"value"] isEqualToString:v ?: @""]) return (NSInteger)k;
@@ -366,6 +374,7 @@ static void apply(NSDictionary<NSString *, NSString *> *v)
     if (!d3d || [v[@"view"] isEqualToString:@"game"]) unsetenv("D2_PERSPECTIVE"); else setenv("D2_PERSPECTIVE", v[@"view"].UTF8String, 1);
     if (d3d) { setenv("D2_RESOLUTION", v[@"resolution"].UTF8String, 1); setenv("D2_TEXTURES", v[@"textures"].UTF8String, 1); }
     else { unsetenv("D2_RESOLUTION"); unsetenv("D2_TEXTURES"); }
+    if (d3d && ![v[@"fps"] isEqualToString:@"25"]) setenv("D2_FPS", v[@"fps"].UTF8String, 1); else unsetenv("D2_FPS");
     setenv("DSR_FILTER", v[@"scaling"].UTF8String, 1);
     setenv("DS_NOTCH", v[@"notch"].UTF8String, 1);
 }
@@ -494,7 +503,8 @@ int ds_launcher_run(const char *game_dir, const char *data_dir)
     DSRow *notch = [DSRow new]; notch.title = @"Notch"; notch.choices = notch_choices(); notch.index = index_of(notch.choices, saved[@"notch"], 0);
     DSRow *res = [DSRow new]; res.title = @"Resolution"; res.choices = resolution_choices(); res.index = index_of(res.choices, saved[@"resolution"], 0);
     DSRow *texr = [DSRow new]; texr.title = @"Textures"; texr.choices = texture_choices(); texr.index = index_of(texr.choices, saved[@"textures"], 0);
-    NSDictionary<NSString *, DSRow *> *rows = @{@"video": video, @"view": view, @"resolution": res, @"textures": texr, @"scaling": scale, @"notch": notch};
+    DSRow *fpsr = [DSRow new]; fpsr.title = @"Frame Rate"; fpsr.choices = fps_choices(); fpsr.index = index_of(fpsr.choices, saved[@"fps"], 0);
+    NSDictionary<NSString *, DSRow *> *rows = @{@"video": video, @"view": view, @"resolution": res, @"textures": texr, @"fps": fpsr, @"scaling": scale, @"notch": notch};
     const char *shot = getenv("DS_LAUNCHER_SHOT");
     if (getenv("DS_NO_LAUNCHER") && !shot) {
         if (saved.count) apply(chosen(rows));
@@ -509,12 +519,13 @@ int ds_launcher_run(const char *game_dir, const char *data_dir)
     upd.choices = update_choice(ustate, branch, built, nil);
     BOOL shotMode = shot != NULL;
     DSSection *display = [DSSection new], *d3dSec = [DSSection new], *updSec = [DSSection new];
-    d3dSec.title = @"Direct3D"; d3dSec.rows = @[view, res, texr];
+    d3dSec.title = @"Direct3D"; d3dSec.rows = @[view, res, texr, fpsr];
     __weak DSRow *wvid = video, *wview = view;
-    __weak DSRow *wres = res, *wtex = texr;
+    __weak DSRow *wres = res, *wtex = texr, *wfps = fpsr;
     d3dSec.summary = ^NSString * {
         if (![wvid.choices[wvid.index][@"value"] isEqualToString:@"d3d"]) return @"Used when Video is Direct3D";
-        return [NSString stringWithFormat:@"%@ · %@ · %@", wview.choices[wview.index][@"label"], wres.choices[wres.index][@"label"], wtex.choices[wtex.index][@"label"]];
+        NSString *f = wfps.index ? [NSString stringWithFormat:@" · %@ fps", wfps.choices[wfps.index][@"label"]] : @"";
+        return [NSString stringWithFormat:@"%@ · %@ · %@%@", wview.choices[wview.index][@"label"], wres.choices[wres.index][@"label"], wtex.choices[wtex.index][@"label"], f];
     };
     display.title = @"Display"; display.rows = notch_height() > 0 ? @[scale, notch] : @[scale];
     updSec.title = @"Updates"; updSec.summary = ^NSString * { NSDictionary *c = upd.choices[upd.index]; return [c[@"note"] length] ? [NSString stringWithFormat:@"%@ · %@", c[@"label"], c[@"note"]] : c[@"label"]; };
