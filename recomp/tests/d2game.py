@@ -62,6 +62,7 @@ def lit_fraction(path):
         for p in r[::2]:
             if max(p) > 40: n += 1
     return n / ((h + 1) // 2 * ((w + 1) // 2))
+MENU_GOLD = 0.012     # the game menu's gold text in its box: DirectDraw about 0.065, Direct3D 0.028; without the menu under 0.004
 def gold_fraction(path, box):
     w, h, rows = png.load(path); n = g = 0
     for y in range(box[1], box[3]):
@@ -113,3 +114,24 @@ def fault(g):
     for l in open(g.log):
         if 'game ended' in l: return l.strip()
     return None
+
+def burst(g, wait=6.0):
+    """the next 12 frames the game presents, as (milliseconds, 800x600 BGRA bytes) (DS_TEST with W32_BURST_DIR = <dir>/burst)"""
+    import glob, re
+    d = os.path.join(g.dir, 'burst'); open(os.path.join(d, 'go'), 'w').close()
+    for _ in range(int(wait * 10)):
+        time.sleep(0.1)
+        fs = sorted(glob.glob(os.path.join(d, 'f*.bgra')))
+        if len(fs) >= 12: break
+    time.sleep(0.3); fs = sorted(glob.glob(os.path.join(d, 'f*.bgra')))[:12]
+    return [(int(re.search(r'-(\d+)\.bgra$', f).group(1)), open(f, 'rb').read()) for f in fs]
+def scroll(a, b, w=800, h=600):
+    """how far the picture moved from frame a to frame b (dx, dy within +-14, +-10 pixels): the best match of the
+    middle of the screen, compared as brightness on a 7-pixel grid"""
+    lum = lambda d: [d[i] + d[i + 1] + d[i + 2] for i in range(0, len(d), 4)]
+    A, B = lum(a), lum(b); pts = [(x, y) for y in range(120, 400, 7) for x in range(170, 630, 7)]; best = None
+    for dy in range(-10, 11):
+        for dx in range(-14, 15):
+            e = sum(abs(A[y * w + x] - B[(y + dy) * w + x + dx]) for x, y in pts)
+            if best is None or e < best[0]: best = (e, dx, dy)
+    return best[1], best[2]

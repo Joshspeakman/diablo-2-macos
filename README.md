@@ -15,7 +15,8 @@ this repository: the build regenerates everything locally from your copy, and th
   with a choice of scaling filters (sharp pixels, smooth, nearest, CRT scanlines);
 - the game's Direct3D renderer on Metal, with both of its views: Isometric (the classic flat view) and Perspective (the
   ground tilting away toward the horizon), at the original 800×600 or drawn at the display's resolution, with the
-  original sharp textures or smooth (filtered) ones;
+  original sharp textures or smooth (filtered) ones, and at 60, 120 or the display's frame rate with movement blended
+  between the game's 25 ticks a second;
 - sound through DirectSound on Core Audio: music, effects, speech.
 
 Battle.net and Open Battle.net are untested. What's next: [docs/PLAN.md](docs/PLAN.md).
@@ -47,6 +48,7 @@ has:
 | Direct3D → View | **Game's Choice** (the game's Options → Video → Perspective, as it last saved it) · Isometric · Perspective |
 | Direct3D → Resolution | **Original** (800×600, scaled to the display like DirectDraw) · Display (the game's frame drawn at the display's resolution: crisp edges and text) |
 | Direct3D → Textures | **Sharp** (the original pixels) · Smooth (bilinear filtering; cut-out sprites keep clean edges) |
+| Direct3D → Frame Rate | **Original** (25, as the game draws) · 60 · 120 · Display (its refresh rate): movement blended between the game's ticks |
 | Display → Scaling | **Sharp** (square pixels, smoothed only at their edges) · Smooth (bilinear) · Pixel (nearest) · CRT (sharp with scanlines) |
 | Display → Notch | Hide the Notch (the picture below the camera) · Around the Notch |
 | Updates | rebuilds the app from the newest commit of its branch, from your own copy |
@@ -78,6 +80,8 @@ recomp/tests/run_tests.sh "/path/to/Diablo II"   # and the game end to end (afte
     view; the HUD is drawn in each, the game keeps the view chosen, and the same place looks different in the two;
   - *d3d-hd*: the same character at the display's resolution with smooth textures: a larger 4:3 frame, the HUD in
     its place, the same brightness as at 800×600;
+  - *d3d-fps*: the same character walking at 60 frames a second: 12 consecutive frames (read back from the GPU) about
+    16 ms apart, each moved on from the one before by an even step (blended, not repeated);
   - *tcpip*: two instances, one hosting and one joining by this Mac's LAN address, both in Act 1.
 - **Coverage** (`coverage_test.py`, about an hour; run it on its own): a character of every class is made through the
   menus, given every class skill (`tests/d2s.py` edits these scratch characters only), leaves town by its waypoint and
@@ -116,6 +120,12 @@ Notes on Diablo II:
   scale is a whole number (each texel an even block; the present filter covers the rest), with smooth ones the
   display's exact size. Smooth textures (`D2_TEXTURES=smooth`) force bilinear filtering; transparent texels take
   their visible neighbours' colour and cut-outs are tested at half alpha, so sprites get no dark fringe.
+- Frame rate (`D2_FPS`, `runtime/win32/d2smooth.c`): the game moves its units once a tick (40 ms) and in single player
+  draws once a tick. Hooks in its frame function (`0x44efa0`) let it draw whenever a frame is due (paced there, so
+  ticks are never held back), and around each draw set the moving units' paths (players, monsters, missiles) to
+  positions blended between their last two ticks, putting the real ones back afterwards: only the picture sees them,
+  and the camera follows the player's drawn position. Animation frames stay at 25 a second. The picture runs up to one
+  tick (40 ms) behind the game, the cost of blending between known positions rather than guessing ahead.
 - The game's language file `D2.LNG` is loaded as a resource-only module; characters are kept where 1.14d keeps them on
   Windows (`SHGetKnownFolderPath` Saved Games); settings the game keeps in the registry persist in
   `<data>/registry.txt`.
@@ -131,7 +141,8 @@ recomp/run.sh "/path/to/Diablo II"                    # play from the build (dat
 ```
 
 Environment for development: `DS_TEST=1` (background window, no launch window), `D2_RENDERER=ddraw|gdi|d3d`,
-`D2_PERSPECTIVE=on|off`, `D2_RESOLUTION=original|display`, `D2_TEXTURES=sharp|smooth`, `DSR_RENDER_SCALE=<1-4>`,
+`D2_PERSPECTIVE=on|off`, `D2_RESOLUTION=original|display`, `D2_TEXTURES=sharp|smooth`, `D2_FPS=<n>|display`,
+`DSR_RENDER_SCALE=<1-4>`, `W32_BURST_DIR=<dir>` (tests: 12 consecutive frames when `<dir>/go` appears),
 `W32_REGLOG=1`,
 `DSR_FILTER=sharp|smooth|pixel|crt`, `W32_DDLOG=1`, `W32_NETLOG=1`, `W32_SEHLOG=1`, `W32_TRACE=<file>`,
 `W32_AUDIO_DUMP=<file.wav>`, `DS_CMDFILE=<file>` (scripted clicks, keys, typing and screenshots).

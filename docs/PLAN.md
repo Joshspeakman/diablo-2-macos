@@ -33,7 +33,7 @@ as the fallback):
 2. **Remastered output** (done 2026-10-07: launch window Direct3D → Resolution Original · Display, Textures
    Sharp · Smooth): the game's screen-space triangles drawn at the display's resolution (not an 800x600 picture
    scaled up), with texture filtering choices.
-3. **Arbitrary frame rate**: the game simulates at 25 Hz; drawing in between needs interpolated positions (hooks in
+3. **Arbitrary frame rate** (done 2026-10-07: Direct3D → Frame Rate Original · 60 · 120 · Display): the game simulates at 25 Hz; drawing in between needs interpolated positions (hooks in
    the client's drawing). Feasibility first, then build.
 4. **Ultra-wide**: the game draws a wider scene (its resolution tables, interface anchoring, culling patched).
    Feasibility first. (It shows more of the map than the original; some consider that unfair in multiplayer.)

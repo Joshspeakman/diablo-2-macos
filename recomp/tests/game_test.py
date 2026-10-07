@@ -20,7 +20,9 @@ recorded sound and the files the game writes:
   d3d       the game's Direct3D renderer (D2_RENDERER=d3d) in each view (D2_PERSPECTIVE off, on): a new character in
             Act 1 with the HUD drawn, the game reading the view chosen, and the two views' pictures different; then
             at the display's resolution with smooth textures (D2_RESOLUTION=display, D2_TEXTURES=smooth): a larger
-            frame with the HUD in its place and the same overall brightness
+            frame with the HUD in its place and the same overall brightness; then at 60 frames a second (D2_FPS=60)
+            while walking: 12 consecutive frames about 16 ms apart, each moved on from the one before, by even steps
+            (the movement blended between the game's 25 ticks, not repeated frames)
   tcpip     two instances: one hosts a TCP/IP game, the other joins it by this Mac's LAN address; both are in Act 1
             and the host's server has accepted the second player
 
@@ -48,7 +50,7 @@ def save_and_exit(g):
     menu = 0
     for k in range(4):
         g.send('key:27', 1.5); s = g.shot('menu%d' % k); menu = gold_fraction(s, (190, 245, 610, 275))
-        if menu > 0.04: break
+        if menu > MENU_GOLD: break
     g.send('click:400,259', 6)                                                               # Save and Exit Game
     return menu
 def stage(name):
@@ -104,7 +106,7 @@ try:
         saves = glob.glob(os.path.join(g.dir, 'drive_c', '**', 'MacTest.d2s'), recursive=True)
         hdr = open(saves[0], 'rb').read() if saves else b''
         good = len(hdr) > 300 and struct.unpack_from('<I', hdr, 0)[0] == 0xaa55aa55 and struct.unpack_from('<I', hdr, 8)[0] == len(hdr) and b'MacTest' in hdr[:40]
-        report('save', menu > 0.04 and good, 'menu text %.2f; %s (%d bytes, %s)' % (
+        report('save', menu > MENU_GOLD and good, 'menu text %.2f; %s (%d bytes, %s)' % (
             menu, os.path.relpath(saves[0], g.dir) if saves else 'no save file', len(hdr), 'valid header' if good else 'bad header'))
         if stage('load'):
             g.send('click:400,306', 4); s = g.shot('list')                                   # Single Player: the character list
@@ -129,7 +131,7 @@ try:
         g.send('click:400,300', 2); g.send('type:MacView', 2); g.send('click:690,555', 12)          # the Barbarian, a name, OK
         made = hud(g.shot('d3d-new'))[0]; save_and_exit(g); g.stop()
         found = glob.glob(os.path.join(g.dir, 'drive_c', '**', 'MacView.d2s'), recursive=True)
-        if not found: raise RuntimeError('Direct3D: the character was not saved')
+        if not found or os.path.getsize(found[0]) < 500: raise RuntimeError('Direct3D: the character was not saved (only the file made at its creation)')
         shots, notes, good = {}, ['new character: HUD %s' % ('drawn' if made else 'missing')], made
         for view in ('off', 'on'):
             g = Game('d3d-' + view, {'D2_RENDERER': 'd3d', 'D2_PERSPECTIVE': view}, saves=found[:1]); to_hero_select(g)
@@ -146,6 +148,15 @@ try:
         w, h, _ = png.load(s); ok = hud(s)[0]; b, b0 = brightness(s), brightness(shots['on'])
         report('d3d-hd', w > 800 and abs(w * 3 - h * 4) <= 4 and ok and abs(b - b0) < 0.15 * b0 and g.alive(),
                '%dx%d frame, HUD %s, brightness %.1f (800x600: %.1f)' % (w, h, 'drawn' if ok else 'missing', b, b0))
+        g.stop()
+        g = Game('d3d-fps', {'D2_RENDERER': 'd3d', 'D2_FPS': '60', 'W32_BURST_DIR': os.path.join(WORK, 'd3d-fps', 'burst')}, saves=found[:1])
+        os.makedirs(os.path.join(g.dir, 'burst'), exist_ok=True)
+        to_hero_select(g); g.send('click:690,555', 12); g.send('click:780,300', 0.8)          # into Act 1, walking right
+        fr = burst(g); gaps = [b[0] - a[0] for a, b in zip(fr, fr[1:])]
+        steps = [scroll(a[1], b[1]) for a, b in zip(fr, fr[1:])]; xs = [abs(dx) for dx, dy in steps]
+        gaps_sorted = sorted(gaps); median = gaps_sorted[len(gaps) // 2] if gaps else 99
+        report('d3d-fps', len(fr) == 12 and median <= 20 and min(xs) >= 1 and max(xs) - min(xs) <= 2 and g.alive(),
+               '%d frames, %s ms apart; the picture moved %s pixels each frame' % (len(fr), gaps, xs))
         g.stop()
     # ---------------- TCP/IP: one instance hosts, another joins ----------------
     if stage('tcpip'):

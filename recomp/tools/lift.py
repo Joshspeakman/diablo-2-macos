@@ -26,6 +26,10 @@ CC = {'o': 'CC_O', 'no': 'CC_NO', 'b': 'CC_B', 'ae': 'CC_AE', 'e': 'CC_E', 'ne':
 # the registers and memory as the original code would, and does nothing unless its feature is turned on.
 HOOKS = {                 # address: description (runtime/win32/hooks.c rt_hook)
     0x004065af: 'start-up: the video renderer the player chose (D2_RENDERER)',
+    0x0044c790: 'frame rate: the client game tick starts (D2_FPS)',
+    0x0044f278: 'frame rate: draw on every pass of the idle loop in game',
+    0x0044f28b: 'frame rate: units at blended positions for the draw',
+    0x0044f291: 'frame rate: real positions back after the draw',
 }
 JUNK = {'in', 'out', 'insb', 'insd', 'insw', 'outsb', 'outsd', 'outsw', 'iretd', 'hlt', 'cli', 'sti', 'int1', 'into',
         'int', 'aaa', 'aas', 'aam', 'aad', 'daa', 'das', 'salc', 'les', 'lds', 'retf', 'ljmp', 'lcall', 'arpl', 'bound',

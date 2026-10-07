@@ -464,6 +464,15 @@ M(s_Flip, 3) ME(PSurf, T_SURF)                                      /* (target o
     if (!b) RET(DD_OK, 3);
     { static int n; if (n++ < 6) dlog("Flip %ux%u (GPU %u, back %u)", me->w, me->h, me->gid, b->gid); }
     if (b->gid) {                                                     /* Direct3D: the back buffer as rendered */
+        {   /* tests (DS_TEST, W32_BURST_DIR=<dir>): when <dir>/go appears, the next 12 frames as raw BGRA, f<n>-<ms>.bgra */
+            static int burst = -1, on = -1; if (on < 0) on = getenv("DS_TEST") && getenv("W32_BURST_DIR");
+            if (on) { char f[600]; const char *bd = getenv("W32_BURST_DIR"); snprintf(f, sizeof f, "%s/go", bd);
+                if (burst < 0 && access(f, 0) == 0) { burst = 0; unlink(f); }
+                if (burst >= 0) { uint32_t *px = malloc((size_t)b->w * b->h * 4); int32_t r[4] = {0, 0, (int32_t)b->w, (int32_t)b->h};
+                    if (px && cmd_readback(b->gid, r, (uint8_t *)px, b->w * 4, 4)) { struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
+                        snprintf(f, sizeof f, "%s/f%02d-%ld.bgra", bd, burst, (long)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000));
+                        FILE *o = fopen(f, "wb"); if (o) { fwrite(px, 4, (size_t)b->w * b->h, o); fclose(o); } }
+                    free(px); if (++burst == 12) burst = -1; } } }
         ddraw_pal_frames++; dsr_present(c, b->gid); RET(DD_OK, 3);
     }
     uint32_t t = me->mem; me->mem = b->mem; b->mem = t;              /* the surfaces keep their identities; their pixels swap */

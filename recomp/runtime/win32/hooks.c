@@ -8,6 +8,7 @@
 #include "ext.h"
 
 int native_hook(Ctx *c, uint32_t addr);   /* native.c */
+int d2smooth_on(void); int d2smooth_frame_due(void); void d2smooth_tick(void); void d2smooth_before_draw(void); void d2smooth_after_draw(void);   /* d2smooth.c */
 void rt_hook(Ctx *c, uint32_t addr)
 {
     if (native_hook(c, addr)) return;
@@ -24,6 +25,13 @@ void rt_hook(Ctx *c, uint32_t addr)
         G_MEM[cfg + 8] = (uint8_t)gdi; G_MEM[cfg + 10] = 0; G_MEM[cfg + 11] = 0; G_MEM[cfg + 12] = 0; G_MEM[cfg + 13] = 0;
         break;
     }
+    /* more frames than ticks (D2_FPS, d2smooth.c) */
+    case 0x0044c790: d2smooth_tick(); break;                                   /* the client's game tick */
+    case 0x0044f278:                                                           /* in game: draw when a frame is due, not only after a tick */
+        if (d2smooth_on() && rt_r32(G_MEM, 0x7a6a70)) rt_w32(G_MEM, 0x7a0704, d2smooth_frame_due() ? 0 : 1);
+        break;
+    case 0x0044f28b: d2smooth_before_draw(); break;                            /* the game's draw ... */
+    case 0x0044f291: d2smooth_after_draw(); break;                             /* ... and after it */
     default:   /* development trace hooks (tools/lift.py DS_TRACE_HOOKS) */
         if (getenv("DS_HOOKTRACE")) fprintf(stderr, "hook %08x: eax %08x ecx %08x edx %08x ebx %08x esi %08x edi %08x | ret %08x args %08x %08x %08x %08x\n",
                                             addr, c->eax, c->ecx, c->edx, c->ebx, c->esi, c->edi, rt_r32(G_MEM, c->esp), rt_r32(G_MEM, c->esp + 4),
