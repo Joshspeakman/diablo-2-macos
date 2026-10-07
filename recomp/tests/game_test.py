@@ -17,6 +17,8 @@ recorded sound and the files the game writes:
   save      Escape opens the menu; Save and Exit writes <Saved Games>/Diablo II/MacTest.d2s with a valid header
   load      Single Player lists MacTest; OK enters the game again with the HUD
   gdi       the game's windowed renderer (D2_RENDERER=gdi) reaches the main menu, also exactly through the palette
+  tcpip     two instances: one hosts a TCP/IP game, the other joins it by this Mac's LAN address; both are in Act 1
+            and the host's server has accepted the second player
 
 The game folder is only read. Nothing is written outside the scratch folder."""
 import argparse, glob, os, struct, subprocess, sys, time, wave, math
@@ -185,6 +187,31 @@ try:
         report('gdi', pe is not None and pe > 0.999 and '800x600' in sizes and brightness(s) > 10,
                'windowed renderer: %s, palette-exact %.4f' % (sorted(sizes), pe or 0))
         g.stop()
+    # ---------------- TCP/IP: one instance hosts, another joins ----------------
+    if stage('tcpip'):
+        def to_tcpip(g):
+            time.sleep(5)
+            for _ in range(4): g.send('click:400,300', 3)                                     # videos, title -> main menu
+            g.send('click:400,416', 3); g.send('click:400,330', 3)                           # Other Multiplayer, TCP/IP Game
+        host = Game('tcpip-host', {'W32_NETLOG': '1'}); to_tcpip(host)
+        host.send('click:400,189', 3)                                                         # Host Game: the hero selection
+        host.send('click:400,300', 2); host.send('type:HostMac', 2); host.send('click:690,555', 12)
+        import socket                                                                         # the address another PC would use
+        try: lan = [x for x in socket.gethostbyname_ex(socket.gethostname())[2] if not x.startswith('127.')]
+        except OSError: lan = []
+        join = Game('tcpip-join', {'W32_NETLOG': '1'}); to_tcpip(join)
+        join.send('click:400,246', 3)                                                         # Join Game: the address box
+        join.send('type:' + (lan[0] if lan else '127.0.0.1'), 2); join.send('click:469,322', 5)
+        join.send('click:140,495', 3)                                                         # Create New Character
+        join.send('click:400,300', 2); join.send('type:JoinMac', 2); join.send('click:690,555', 5)
+        join.send('click:690,555', 14)                                                        # OK: into the host's game
+        hs, js = host.shot('host'), join.shot('join')
+        accepts = sum(1 for l in open(host.log) if 'net: accept' in l)
+        received = sum(1 for l in open(join.log) if 'net: recv' in l)
+        report('tcpip', hud(hs)[0] and hud(js)[0] and accepts >= 2 and received > 10,
+               'host and joiner in Act 1: %s/%s; connections the host accepted: %d; packets the joiner received: %d (joined by %s)' % (
+                   hud(hs)[0], hud(js)[0], accepts, received, lan[0] if lan else '127.0.0.1'))
+        host.stop(); join.stop()
 except Exception as e:
     report('error', False, repr(e))
 finally:
