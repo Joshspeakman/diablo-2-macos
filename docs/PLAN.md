@@ -38,6 +38,31 @@ as the fallback):
 4. **Ultra-wide**: the game draws a wider scene (its resolution tables, interface anchoring, culling patched).
    Feasibility first. (It shows more of the map than the original; some consider that unfair in multiplayer.)
 
+### Frame-rate spike (2026-10-07)
+
+- The frame: the message loop (`0x451bb0`) calls the client's idle function `0x44efa0` whenever no message is
+  waiting. It reads `GetTickCount`; when the frame period (`0x70ef1c` = 40 ms) has passed since the last tick
+  (`0x7a0490`) it runs a game tick, then draws through the state's draw function (`*0x7a0484`, in game `0x44c990`)
+  unless the skip flag `0x7a0704` is set; `0x7a0494` counts drawn frames. Game type `0x7a0610`: 0 single player,
+  8 a hosted TCP/IP game.
+- Single player draws once per tick (25 fps). In multiplayer the other path clears the skip flag without a tick, so
+  the game draws as often as it is called (about 70 fps measured, the display showing 60).
+- But those extra frames repeat the picture: twelve consecutive frames read back while walking in a TCP/IP game
+  changed only every second or third frame (each 40 ms tick). The game does not interpolate.
+- So a real high frame rate needs: (a) single player taking the draw-between-ticks path, (b) for each in-between draw,
+  the client's units and the camera at positions blended between the last two ticks (saved and restored around the
+  draw, on the client's thread), animation frames staying at 25 Hz, and (c) presents paced to the display. Missiles,
+  overlays and the automap follow the same positions. Effort: a few days; the main risk is drawing code that reads
+  positions cached elsewhere (it would show as jitter, not a gameplay change, since only the drawing sees them).
+
+### Ultra-wide spike (2026-10-07)
+
+- The 800x600 and 640x480 sizes are not in a table: about 100 immediates in the code (800, 600, 640, 480) mixed with
+  unrelated constants, plus the interface panels' anchoring, the view's culling and the perspective projection.
+  Mods for 1.14d show it can be done (SGD2FreeRes), but here it means finding and patching each site through hooks.
+- Effort: about a week of reverse engineering, with a long tail of misplaced interface pieces to chase. Rendering is
+  not the obstacle (the renderer already draws any size); the game's layout is.
+
 ## Next
 
 - Play deeper: bosses, dungeons, items and trading, the cube, mercenaries (each new code path may reach an unsupported
