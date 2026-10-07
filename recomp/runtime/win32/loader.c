@@ -20,8 +20,6 @@ struct rt_imp { uint32_t iat; const char *name; };
 extern const struct rt_imp rt_imptab[]; extern const unsigned rt_imptab_n;
 static char *thunk_name[MAX_THUNKS]; static ImpFn thunk_fn[MAX_THUNKS]; static unsigned nthunks;
 static uint32_t thunk_target[MAX_THUNKS];      /* import served by a recompiled DLL: its export's guest address */
-struct rt_image { const char *name; uint32_t base, imp_first, imp_count; };
-extern const struct rt_image rt_images[]; extern const unsigned rt_images_n;
 static uint8_t image_loaded[64], image_inited[64], image_ref[64];   /* mapped / DllMain done / loaded by the game */
 static pthread_mutex_t thunk_lock = PTHREAD_MUTEX_INITIALIZER;
 
@@ -32,11 +30,22 @@ static void canon(const char *dll, const char *fn, char *out, size_t cap)
     char d[64]; size_t k = 0;
     for (; dll[k] && dll[k] != '.' && k < sizeof d - 1; k++) d[k] = (char)(dll[k] >= 'A' && dll[k] <= 'Z' ? dll[k] + 32 : dll[k]);
     d[k] = 0;
-    /* WS2_32 by ordinal: ordinals 1-23, 52-57, 101-116 and 151 are Winsock 1.1's own (accept .. gethostname, WSAStartup ..),
-     * the same functions WSOCK32 exports under them; one implementation serves both */
-    if (!strcmp(d, "ws2_32") && *fn == '#' && (atoi(fn + 1) <= 23 || (atoi(fn + 1) >= 51 && atoi(fn + 1) <= 57) ||
-                                              (atoi(fn + 1) >= 101 && atoi(fn + 1) <= 116) || atoi(fn + 1) == 151)) strcpy(d, "wsock32");
+    /* WS2_32 by ordinal: ordinals 1-23, 51-57, 101-116 and 151 are Winsock 1.1's functions, the same WSOCK32 exports
+     * under the same numbers except 10-12 (WS2_32: ioctlsocket, inet_addr, inet_ntoa; WSOCK32: inet_addr, inet_ntoa,
+     * ioctlsocket); one implementation serves both */
+    char ws2[16];
+    if (!strcmp(d, "ws2_32") && *fn == '#') {
+        int o = atoi(fn + 1);
+        if (o <= 23 || (o >= 51 && o <= 57) || (o >= 101 && o <= 116) || o == 151) {
+            strcpy(d, "wsock32");
+            if (o >= 10 && o <= 12) { snprintf(ws2, sizeof ws2, "#%d", o == 10 ? 12 : o - 1); fn = ws2; }
+        }
+    }
     char f[128]; const char *s = fn; size_t j = 0;
+    if (!strcmp(d, "dsound") && (!strcmp(fn, "#1") || !strcmp(fn, "#2") || !strcmp(fn, "#11"))) {   /* DSOUND by ordinal */
+        snprintf(out, cap, "dsound!%s", !strcmp(fn, "#1") ? "DirectSoundCreate" : !strcmp(fn, "#2") ? "DirectSoundEnumerateA" : "DirectSoundCreate8");
+        return;
+    }
     if (*s == '#') { snprintf(f, sizeof f, "ord%s", s + 1); }
     else {
         if (*s == '_' && strchr(s, '@')) s++;

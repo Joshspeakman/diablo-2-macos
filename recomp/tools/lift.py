@@ -301,6 +301,7 @@ class Lifter:
                   'scasb', 'scasw', 'scasd', 'cmpsb', 'cmpsw', 'cmpsd') and not (ops and ops[0].type == X.X86_OP_REG and i.reg_name(ops[0].reg).startswith('xmm')):
             return self.string(mn, rep)
         if rep: raise Unsupported('prefix %s %s' % (rep, mn))
+        if mn == 'cmpxchg8b': return self.cmpxchg8b(i)
         o = ops
         if mn == 'mov':
             return self.wr(i, o[0], self.rd(i, o[1], o[0].size))
@@ -490,8 +491,16 @@ class Lifter:
             return '{ int32_t n = (int16_t)eax, d = (int8_t)%s; if (!d || n / d != (int8_t)(n / d)) { SPILL; rt_div_fault(c, 0x%08xu); } eax = (eax & 0xffff0000u) | (((uint32_t)(n %% d) & 0xffu) << 8) | ((uint32_t)(n / d) & 0xffu); }' % (v, pc)
         raise Unsupported('%s16' % mn)
 
+    def cmpxchg8b(self, i):
+        # edx:eax == [ea] (64 bits): [ea] = ecx:ebx, ZF set; otherwise edx:eax = [ea], ZF clear; other flags kept.
+        # Under the runtime's bus lock: the guest's 8 bytes need not be 8-aligned, which host 64-bit atomics require.
+        return ('{ uint32_t ea = %s; rt_bus_lock(); uint32_t lo = R32(ea), hi = R32(ea + 4u); int eq = lo == eax && hi == edx; '
+                'if (eq) { W32(ea, ebx); W32(ea + 4u, ecx); } else { eax = lo; edx = hi; } rt_bus_unlock(); '
+                'flags_set(&f, eq ? F_ZF : 0, F_ZF); }') % self.addr(i, i.operands[0])
+
     def locked(self, i, mn):
         o = i.operands
+        if mn == 'cmpxchg8b': return self.cmpxchg8b(i)
         if mn in ('inc', 'dec') and o[0].type == X.X86_OP_MEM and o[0].size in (1, 2, 4):
             sz = o[0].size; t = {1: 'uint8_t', 2: 'uint16_t', 4: 'uint32_t'}[sz]
             fn = '__atomic_add_fetch' if mn == 'inc' else '__atomic_sub_fetch'

@@ -136,6 +136,13 @@ static void on_fault(int sig, siginfo_t *si, void *uc)
             Dl_info di; void *pc = (void *)u->uc_mcontext->__ss.__pc;
             fprintf(stderr, "recomp: fault %s %08x in %s+%#lx host pc %p (thread %x)\n", write ? "write" : "read", ga,
                     dladdr(pc, &di) && di.dli_sname ? di.dli_sname : "?", dladdr(pc, &di) ? (long)((char *)pc - (char *)di.dli_saddr) : 0L, pc, w32_tid(c));
+            /* the guest stack's likely return addresses (the game image's code), from the last spilled esp */
+            fprintf(stderr, "recomp:   stack from %08x:", c->esp);
+            for (uint32_t k = 0, n = 0; k < 0x800 && n < 24; k += 4) {
+                uint32_t v = vm_committed(c->esp + k, 4) ? rt_r32(G_MEM, c->esp + k) : 0;
+                if (v >= w32_image_base + 0x1000 && v < w32_image_base + w32_image_size) { fprintf(stderr, " %08x", v); n++; }
+            }
+            fputc('\n', stderr);
         }
         if (w32_dispatch(c, EXCEPTION_ACCESS_VIOLATION, 0, 0, 2, info)) {
             /* The host page (16 KB) is now accessible as a whole, so the game will never fault on the other guest pages

@@ -92,8 +92,6 @@ static uint32_t nearest_fn(uint32_t a)
     while (lo < hi) { unsigned m = (lo + hi) / 2; if (rt_fntab[m].addr <= a) lo = m + 1; else hi = m; }
     return lo ? rt_fntab[lo - 1].addr : 0;
 }
-struct rt_image { const char *name; uint32_t base, imp_first, imp_count; };
-extern const struct rt_image rt_images[]; extern const unsigned rt_images_n;
 static const char *image_of(uint32_t a)
 {
     for (unsigned k = 0; k < rt_images_n; k++) {

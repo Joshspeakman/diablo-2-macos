@@ -40,7 +40,6 @@ static uint32_t find_resource(uint32_t base, uint32_t type, uint32_t name, uint3
     if (!l) l = dir_find(root, d, 0xffffffffu);
     return l && !(l & 0x80000000u) ? root + l : 0;
 }
-extern const struct rt_image rt_images[]; extern const unsigned rt_images_n;
 static uint32_t base_of(uint32_t h)                     /* a module handle (its base): the game or a recompiled DLL */
 {
     if (!h || h == w32_image_base) return w32_image_base;
@@ -228,3 +227,17 @@ IMPL(kernel32, OpenProcess) { w32_set_last_error(c, 5); RET(0, 3); }
 IMPL(kernel32, CreateToolhelp32Snapshot) { w32_set_last_error(c, 5); RET(0xffffffffu, 2); }
 IMPL(kernel32, Thread32First) { w32_set_last_error(c, 18); RET(0, 2); }
 IMPL(kernel32, Thread32Next) { w32_set_last_error(c, 18); RET(0, 2); }
+
+/* ---- string tables (RT_STRING 6): block id/16+1 holds 16 counted UTF-16 strings ---- */
+IMPL(user32, LoadStringA)                              /* (module, id, buffer, size) */
+{
+    uint32_t b = base_of(ARG(0)), id = ARG(1), out = ARG(2), cap = ARG(3);
+    uint32_t r = b ? find_resource(b, 6, (id >> 4) + 1, 0x409) : 0;
+    if (!r || !out || !cap) { if (out && cap) rt_w8(G_MEM, out, 0); RET(0, 4); }
+    uint32_t p = b + rt_r32(G_MEM, r);
+    for (uint32_t k = 0; k < (id & 15); k++) p += 2 + 2 * rt_r16(G_MEM, p);
+    uint16_t n = (uint16_t)rt_r16(G_MEM, p);
+    int len = w32_wide_to_mb(1252, GW(p + 2), n, (uint8_t *)GP(out), (int)cap - 1); if (len < 0) len = 0;
+    rt_w8(G_MEM, out + (uint32_t)len, 0); RET(len, 4);
+}
+IMPL(kernel32, FreeResource) { RET(0, 1); }
