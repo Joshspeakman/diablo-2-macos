@@ -203,3 +203,28 @@ IMPL(winmm, timeKillEvent) { RET(0, 1); }
 
 /* ---- wsock32 / ws2_32 ---- */
 IMPL(wsock32, ord112) { rt_w32(G_MEM, c->fs_base + 0x34, ARG(0)); RET(0, 1); }   /* WSASetLastError */
+
+/* SHGetKnownFolderPath(folder id, flags, token, PWSTR *out): Vista's folders, the string for CoTaskMemFree (the process
+ * heap here). Diablo II 1.14d keeps its characters in <profile>\Saved Games\Diablo II when this exists. */
+IMPL(shell32, SHGetKnownFolderPath)
+{
+    static const struct { uint32_t d1; const char *path; } known[] = {
+        {0x4c5c32ffu, "C:\\Users\\player\\Saved Games"},           /* FOLDERID_SavedGames */
+        {0xfdd39ad0u, "C:\\Users\\player\\Documents"},             /* FOLDERID_Documents */
+        {0x5e6c858fu, "C:\\Users\\player"},                        /* FOLDERID_Profile */
+        {0xf1b32785u, "C:\\Users\\player\\AppData\\Local"},        /* FOLDERID_LocalAppData */
+        {0x3eb685dbu, "C:\\Users\\player\\AppData\\Roaming"},      /* FOLDERID_RoamingAppData */
+        {0x62ab5d82u, "C:\\ProgramData"},                          /* FOLDERID_ProgramData */
+    };
+    uint32_t id = ARG(0) ? rt_r32(G_MEM, ARG(0)) : 0, out = ARG(3);
+    if (out) rt_w32(G_MEM, out, 0);
+    for (unsigned k = 0; k < sizeof known / sizeof *known; k++) if (known[k].d1 == id) {
+        char host[2048]; if (!w32_host_path(known[k].path, host, sizeof host, 1)) mkdir(host, 0755);   /* KF_FLAG_CREATE, always */
+        uint32_t n = (uint32_t)strlen(known[k].path), p = heap_alloc(w32_process_heap, 0, 2 * (n + 1));
+        for (uint32_t j = 0; j <= n; j++) rt_w16(G_MEM, p + 2 * j, (uint8_t)known[k].path[j]);
+        if (out) rt_w32(G_MEM, out, p);
+        RET(0, 4);
+    }
+    fprintf(stderr, "w32: SHGetKnownFolderPath(%08x-...) unknown\n", id);
+    RET(0x80070002u, 4);                               /* HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND) */
+}

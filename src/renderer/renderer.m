@@ -45,6 +45,7 @@ struct DSRRenderer {
     struct { __unsafe_unretained id pso, dso, tex[2], smp[2]; int cull, ring_bound; uint32_t sref; MTLViewport vp; } es;
     id<MTLRenderPipelineState> quad_pso, quad_over_pso, zclear_pso, present_pso; id<MTLTexture> scratch, gamma_lut; uint16_t gamma[3][256]; int gamma_dirty; id<MTLDepthStencilState> zclear_ds, nodepth_ds, zsclear_ds[4];
     id<MTLSamplerState> point_clamp, linear_clamp; id<MTLTexture> dummy;
+    int filter;                                   /* the present pass's scaling filter (0 pixel, 1 smooth, 2 sharp, 3 crt) */
     /* effect programs (DSR_PROG_*): Metal compiled from the game's HLSL effects (runtime/win32/hlsl.c) */
     struct { id<MTLFunction> vs, fs; uint32_t kinds; } prog[1024]; uint32_t cur_prog;
     float pconst[4096 * 4]; uint32_t npconst;
@@ -81,6 +82,7 @@ DSRRenderer *dsr_renderer_create(id<MTLDevice> dev)
     { const char *mb = getenv("DSR_RINGMB"); if (mb && atoi(mb) >= 4 && atoi(mb) <= 256) r->ring_size = (uint32_t)atoi(mb) << 20; }   /* development: a small ring wraps often */ r->ring = [dev newBufferWithLength:r->ring_size options:MTLResourceStorageModeShared];
     { uint32_t w = 0xffffffff; r->white = [dev newBufferWithBytes:&w length:16 options:MTLResourceStorageModeShared]; }
     r->fl_on = getenv("DSR_FLASHLOG") != 0;
+    { const char *f = getenv("DSR_FILTER"); r->filter = !f ? 2 : !strcmp(f, "pixel") ? 0 : !strcmp(f, "smooth") ? 1 : !strcmp(f, "crt") ? 3 : 2; }
     { const char *sc = getenv("DSR_RENDER_SCALE"); r->scale = sc ? (float)atof(sc) : 1; if (!(r->scale >= 1 && r->scale <= 3)) r->scale = 1; }
     for (int k = 0; k < 32; k++) mat_ident(r->xf[k]);
     for (int k = 0; k < 256; k++) r->rs[k] = 0;
@@ -679,6 +681,11 @@ id<MTLCommandBuffer> dsr_renderer_present_to(DSRRenderer *r, id<MTLTexture> dst)
     [e setRenderPipelineState:r->present_pso];
     [e setFragmentTexture:s->tex atIndex:0]; [e setFragmentTexture:r->gamma_lut atIndex:1];
     [e setFragmentSamplerState:(dst.width == s->tex.width && dst.height == s->tex.height) ? r->point_clamp : r->linear_clamp atIndex:0];
+    {   /* the scaling filter: the picture's own size (a scaled target's texture is larger) to the drawable's */
+        struct { float sw, sh, dw, dh; uint32_t mode, pad[3]; } pu = { (float)s->w, (float)s->h, (float)dst.width, (float)dst.height, (uint32_t)r->filter, {0} };
+        if (dst.width == s->tex.width && dst.height == s->tex.height) pu.mode = 0;   /* one texel per pixel: exact */
+        [e setFragmentBytes:&pu length:sizeof pu atIndex:0];
+    }
     [e drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
     if (r->fl_on) {   /* DSR_FLASHLOG: the frame as shown, sampled 32x32, checked when the GPU is done */
         [e endEncoding];
@@ -691,6 +698,7 @@ id<MTLCommandBuffer> dsr_renderer_present_to(DSRRenderer *r, id<MTLTexture> dst)
         pp.colorAttachments[0].texture = r->fl_probe[i]; pp.colorAttachments[0].loadAction = MTLLoadActionDontCare; pp.colorAttachments[0].storeAction = MTLStoreActionStore;
         e = [cmdbuf(r) renderCommandEncoderWithDescriptor:pp];
         [e setRenderPipelineState:r->present_pso]; [e setFragmentTexture:s->tex atIndex:0]; [e setFragmentTexture:r->gamma_lut atIndex:1];
+        { struct { float sw, sh, dw, dh; uint32_t mode, pad[3]; } pu = { (float)s->w, (float)s->h, 32, 32, 0, {0} }; [e setFragmentBytes:&pu length:sizeof pu atIndex:0]; }
         [e setFragmentSamplerState:r->point_clamp atIndex:0]; [e drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
         id<MTLTexture> probe = r->fl_probe[i]; int frame = dsr_frame;
         char ctx[600]; int n = snprintf(ctx, sizeof ctx, "fixed %u, effects %u, target switches %u, white clears %u | programs", r->fl_ff, r->fl_draws_fx, r->fl_rtsw, r->fl_wclear);
@@ -772,6 +780,8 @@ double dsr_renderer_present_time(DSRRenderer *r) { return r->present_ts; }
 void dsr_renderer_set_graph(DSRRenderer *r, const float *a, int ha, const float *b, int hb) { r->g_a = a; r->g_ha = ha; r->g_b = b; r->g_hb = hb; r->g_on = 1; }
 void dsr_renderer_presented_size(DSRRenderer *r, uint32_t *w, uint32_t *h) { Surf *s = surf(r, r->presented); *w = s ? (uint32_t)lroundf(s->w * s->sc) : 0; *h = s ? (uint32_t)lroundf(s->h * s->sc) : 0; }
 id<MTLTexture> dsr_renderer_rt(DSRRenderer *r) { Surf *s = surf(r, r->rt); return s ? s->tex : nil; }
+void dsr_renderer_set_filter(DSRRenderer *r, int mode) { r->filter = mode >= 0 && mode <= 3 ? mode : 2; }
+int dsr_renderer_filter(DSRRenderer *r) { return r->filter; }
 id<MTLTexture> dsr_renderer_presented(DSRRenderer *r) { Surf *s = surf(r, r->presented); return s ? s->tex : nil; }
 
 /* DSR_FLASHLOG's trace: every command of one frame (the one after a white frame is flagged, or DSR_TRACEBASE=<frame>) */

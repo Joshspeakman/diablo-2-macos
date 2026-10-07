@@ -162,9 +162,32 @@ vertex POut vs_present(uint vid [[vertex_id]])
     float2 c = float2((vid << 1) & 2, vid & 2);   // fullscreen triangle
     POut o; o.pos = float4(c * 2 - 1, 0, 1); o.uv = float2(c.x, 1 - c.y); return o;
 }
-fragment float4 fs_present(POut in [[stage_in]], texture2d<float> src [[texture(0)]], texture1d<float> lut [[texture(1)]], sampler s [[sampler(0)]])
+// The scaling filter (PresentUni.mode), from the game's picture (src_size) to the drawable (dst_size):
+//   0 pixel: nearest texel; 1 smooth: bilinear; 2 sharp: each texel a block of whole drawable pixels (the integer part
+//   of the scale), blended only across the fractional pixel at block edges, so pixels stay square and even without
+//   shimmer; 3 crt: sharp, with each source row shaded like a scanline.
+struct PresentUni { float2 src_size, dst_size; uint mode; };
+static float2 sharp_uv(float2 uv, float2 src_size, float2 dst_size)
 {
-    float3 c = src.sample(s, in.uv).rgb;
+    float2 texel = uv * src_size, scale = max(floor(dst_size / src_size), 1.0);
+    float2 base = floor(texel), f = texel - base - 0.5;                  // -0.5 .. 0.5 from the texel centre
+    float2 flat = 0.5 - 0.5 / scale;                                     // the part of the texel drawn flat
+    float2 t = (f - clamp(f, -flat, flat)) * scale + 0.5;                // 0..1 only across the edge
+    return (base + t) / src_size;
+}
+fragment float4 fs_present(POut in [[stage_in]], texture2d<float> src [[texture(0)]], texture1d<float> lut [[texture(1)]],
+                           sampler s [[sampler(0)]], constant PresentUni &u [[buffer(0)]])
+{
+    constexpr sampler nearest(coord::normalized, filter::nearest, address::clamp_to_edge);
+    constexpr sampler linear(coord::normalized, filter::linear, address::clamp_to_edge);
+    float3 c;
+    if (u.mode == 0) c = src.sample(nearest, in.uv).rgb;
+    else if (u.mode == 1) c = src.sample(linear, in.uv).rgb;
+    else c = src.sample(linear, sharp_uv(in.uv, u.src_size, u.dst_size)).rgb;
+    if (u.mode == 3) {                                                   // a scanline per source row: full at its centre
+        float y = fract(in.uv.y * u.src_size.y) - 0.5;
+        c *= mix(1.0, 0.62, smoothstep(0.18, 0.5, abs(y)));
+    }
     uint3 i = uint3(saturate(c) * 255.0 + 0.5);
     return float4(lut.read(i.r).r, lut.read(i.g).g, lut.read(i.b).b, 1);
 }

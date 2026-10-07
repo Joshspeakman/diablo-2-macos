@@ -110,7 +110,8 @@ static void pf_for(uint32_t *pf, uint32_t bpp)
 
 /* ---- the picture: the primary's pixels through its palette, to the renderer ---- */
 static uint32_t screen_id, screen_w, screen_h;
-static uint32_t last_pal_rgb[256];                   /* the palette last shown (tests read it: DS_PEEKFILE "palette") */
+static uint32_t last_pal_rgb[256];                   /* the palette of the last 8-bit picture (tests: written beside screenshots) */
+static int last_indexed;                             /* the last picture came from 8-bit pixels */
 uint32_t ddraw_pal_frames;                           /* pictures sent */
 static void to_bgra(const PSurf *s, const uint8_t *src, uint32_t *dst, uint32_t w, uint32_t h, uint32_t pitch)
 {
@@ -120,14 +121,16 @@ static void to_bgra(const PSurf *s, const uint8_t *src, uint32_t *dst, uint32_t 
             uint32_t e = s->pal ? s->pal->entries[k] : (uint32_t)(k * 0x010101);              /* r | g << 8 | b << 16 */
             lut[k] = 0xff000000u | (e & 0xff) << 16 | (e & 0xff00) | (e >> 16 & 0xff);       /* BGRA in memory = 0xAARRGGBB */
         }
-        memcpy(last_pal_rgb, lut, sizeof lut);
+        memcpy(last_pal_rgb, lut, sizeof lut); last_indexed = 1;
         for (uint32_t y = 0; y < h; y++) { const uint8_t *r = src + y * pitch; uint32_t *o = dst + y * w; for (uint32_t x = 0; x < w; x++) o[x] = lut[r[x]]; }
     } else if (s->bpp == 16) {
+        last_indexed = 0;
         for (uint32_t y = 0; y < h; y++) {
             const uint16_t *r = (const uint16_t *)(src + y * pitch); uint32_t *o = dst + y * w;
             for (uint32_t x = 0; x < w; x++) { uint32_t v = r[x], R = (v >> 11) * 255 / 31, G = (v >> 5 & 63) * 255 / 63, B = (v & 31) * 255 / 31; o[x] = 0xff000000u | R << 16 | G << 8 | B; }
         }
     } else {
+        last_indexed = 0;
         for (uint32_t y = 0; y < h; y++) { const uint32_t *r = (const uint32_t *)(src + y * pitch); uint32_t *o = dst + y * w; for (uint32_t x = 0; x < w; x++) o[x] = r[x] | 0xff000000u; }
     }
 }
@@ -155,9 +158,17 @@ void dsr_frame_end(Ctx *c)
     ddraw_pal_frames++;
     dsr_present(c, screen_id);
 }
-void dsr_frame_palette(const uint32_t *bgra)         /* (tests: the colours of the last 8-bit picture) */
+void dsr_frame_palette(const uint32_t *bgra)         /* (tests: the colours of the last 8-bit picture; 0: not 8-bit) */
 {
-    memcpy(last_pal_rgb, bgra, sizeof last_pal_rgb);
+    if (bgra) memcpy(last_pal_rgb, bgra, sizeof last_pal_rgb);
+    last_indexed = bgra != 0;
+}
+/* the last picture's palette as 0xRRGGBB; 0 when it was not an 8-bit picture */
+int dsr_frame_palette_get(uint32_t out[256])
+{
+    if (!last_indexed) return 0;
+    for (int k = 0; k < 256; k++) out[k] = last_pal_rgb[k] & 0xffffff;
+    return 1;
 }
 /* the rectangle x, y, w, h of surface s becomes the picture on screen */
 static void show(Ctx *c, const PSurf *s, uint32_t x, uint32_t y, uint32_t w, uint32_t h)
