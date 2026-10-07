@@ -473,6 +473,7 @@ M(s_Flip, 3) ME(PSurf, T_SURF)                                      /* (target o
                         snprintf(f, sizeof f, "%s/f%02d-%ld.bgra", bd, burst, (long)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000));
                         FILE *o = fopen(f, "wb"); if (o) { fwrite(px, 4, (size_t)b->w * b->h, o); fclose(o); } }
                     free(px); if (++burst == 12) burst = -1; } } }
+        { void d2wide_frame(void); d2wide_frame(); }
         ddraw_pal_frames++; dsr_present(c, b->gid); RET(DD_OK, 3);
     }
     uint32_t t = me->mem; me->mem = b->mem; b->mem = t;              /* the surfaces keep their identities; their pixels swap */
@@ -715,6 +716,7 @@ M(dd_SetCooperativeLevel, 3) ME(PDraw, T_DD)
 END
 static uint32_t set_mode(Ctx *c, PDraw *me, uint32_t w, uint32_t h, uint32_t bpp)
 {
+    { int d2wide_width(void); if (d2wide_width() && w == 800 && h == 600) w = (uint32_t)d2wide_width(); }   /* Diablo II wider than 4:3 (d2wide.c) */
     dlog("SetDisplayMode %ux%ux%u", w, h, bpp);
     if (bpp != 8 && bpp != 16 && bpp != 32) return DDERR_UNSUPPORTED;
     me->mode_w = w; me->mode_h = h; me->mode_bpp = bpp; dsr_d3d9_w = w; dsr_d3d9_h = h;
@@ -825,6 +827,12 @@ static void dev_draw(PDev *d, uint32_t prim, uint32_t vt, uint32_t verts, uint32
     uint32_t *p = cmd_begin(DSR_DRAW, 16 + vbytes + ibytes);
     p[0] = prim; p[1] = fvf; p[2] = nv; p[3] = ni;
     memcpy(p + 4, G_MEM + verts, vbytes);
+    if (fvf == 0x1c4) {   /* Diablo II wider than 4:3 (d2wide.c): right-hand interface the game draws at its 800x600 place */
+        int d2wide_shift(float x0), d2wide_menu_shift(void); float x0 = 1e9f;
+        for (uint32_t k = 0; k < nv; k++) { float x; memcpy(&x, (uint8_t *)(p + 4) + k * 32, 4); if (x < x0) x0 = x; }
+        int dx = d2wide_shift(x0) + d2wide_menu_shift();
+        if (dx) for (uint32_t k = 0; k < nv; k++) { float x; memcpy(&x, (uint8_t *)(p + 4) + k * 32, 4); x += (float)dx; memcpy((uint8_t *)(p + 4) + k * 32, &x, 4); }
+    }
     if (ni) { memset((uint8_t *)(p + 4) + vbytes, 0, ibytes); memcpy((uint8_t *)(p + 4) + vbytes, G_MEM + idx, ni * 2); }
     cmd_end(); d->rt->gpu_newer = 1;
 }

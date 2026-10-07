@@ -26,6 +26,20 @@ CC = {'o': 'CC_O', 'no': 'CC_NO', 'b': 'CC_B', 'ae': 'CC_AE', 'e': 'CC_E', 'ne':
 # the registers and memory as the original code would, and does nothing unless its feature is turned on.
 HOOKS = {                 # address: description (runtime/win32/hooks.c rt_hook)
     0x004065af: 'start-up: the video renderer the player chose (D2_RENDERER)',
+    0x004f55aa: 'wide: the 800x600 modes report the wider size (D2_WIDTH)',
+    0x0044ba50: 'wide: the client\'s screen width',
+    0x0044caed: 'wide: the world drawn between two open side panels',
+    0x0045aec6: 'wide: a side panel open slides the view by half a panel',
+    0x0045aedd: 'wide: a side panel open slides the view by half a panel',
+    0x0045af07: 'wide: a side panel open slides the view rectangle by half a panel',
+    0x00509c3f: 'wide: a renderer\'s screen width',
+    0x0051126f: 'wide: a renderer\'s screen width',
+    0x006b5037: 'wide: a renderer\'s screen width',
+    0x006c7b75: 'wide: a renderer\'s screen width',
+    **{a: 'wide: right-hand interface drawn at its 800x600 place (start or end of a marked stretch)' for a in (
+        0x499497, 0x49949c)},
+    **{a: 'wide: a side panel taken as a quarter of the screen: 200 (half its 400 pixels)' for a in (
+        0x452dd5, 0x452de5, 0x454fc8, 0x454fd8, 0x45615f, 0x45622b, 0x459484, 0x459494, 0x45976b, 0x459797, 0x46e3a1, 0x46e3c0, 0x470f53, 0x470f63, 0x471587, 0x47159f, 0x4717ce, 0x4717de, 0x471b29, 0x471b41, 0x471c40, 0x471c50, 0x4720e2, 0x4720f2, 0x4734bd, 0x4734d2, 0x4736f3, 0x473705, 0x473abc, 0x473ad4, 0x4db6ce, 0x4db6e1, 0x4ddfeb, 0x4ddffb, 0x4de0a3, 0x4de0b3, 0x4de1ba, 0x4de1ca, 0x4de29c, 0x4de2ac, 0x50c72d, 0x5132f8, 0x513308, 0x6b8071, 0x6c9608, 0x6c9618)},
     0x0044c790: 'frame rate: the client game tick starts (D2_FPS)',
     0x0044f278: 'frame rate: draw on every pass of the idle loop in game',
     0x0044f28b: 'frame rate: units at blended positions for the draw',

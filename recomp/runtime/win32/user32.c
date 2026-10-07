@@ -412,11 +412,13 @@ IMPL(user32, SetCursorPos)
     RET(1, 2);
 }
 void w32_set_cursor(int x, int y) { pthread_mutex_lock(&cursor_lock); cursor_x = x; cursor_y = y; pthread_mutex_unlock(&cursor_lock); }
+int w32_cursor_limit_w;                                                   /* a narrower limit for the cursor than the screen (0: none) */
 /* relative motion from the host, applied to the cursor the game last read or set (it re-centres it every frame) */
 void w32_move_cursor(int dx, int dy, int w, int h, int *ox, int *oy)
 {
     pthread_mutex_lock(&cursor_lock);
     cursor_x += dx; cursor_y += dy;
+    if (w32_cursor_limit_w > 0 && w > w32_cursor_limit_w) w = w32_cursor_limit_w;   /* (Diablo II's menus, wider than 4:3: d2wide.c) */
     if (cursor_x < 0) cursor_x = 0; if (cursor_y < 0) cursor_y = 0;
     if (cursor_x > w - 1) cursor_x = w - 1; if (cursor_y > h - 1) cursor_y = h - 1;
     *ox = cursor_x; *oy = cursor_y;

@@ -8,6 +8,7 @@
 #include "ext.h"
 
 int native_hook(Ctx *c, uint32_t addr);   /* native.c */
+int d2wide_width(void); int d2wide_mark(uint32_t addr); int d2wide_quarter(Ctx *c, uint32_t addr); void d2wide_screen_set(void);   /* d2wide.c */
 int d2smooth_on(void); int d2smooth_frame_due(void); void d2smooth_tick(void); void d2smooth_before_draw(void); void d2smooth_after_draw(void);   /* d2smooth.c */
 void rt_hook(Ctx *c, uint32_t addr)
 {
@@ -25,6 +26,15 @@ void rt_hook(Ctx *c, uint32_t addr)
         G_MEM[cfg + 8] = (uint8_t)gdi; G_MEM[cfg + 10] = 0; G_MEM[cfg + 11] = 0; G_MEM[cfg + 12] = 0; G_MEM[cfg + 13] = 0;
         break;
     }
+    /* wider than 4:3 (D2_WIDTH, d2wide.c) */
+    case 0x004f55aa: if (d2wide_width()) rt_w32(G_MEM, c->edx, (uint32_t)d2wide_width()); break;   /* the 800x600 modes' size */
+    case 0x00509c3f: case 0x0051126f: case 0x006b5037: case 0x006c7b75:        /* the renderers' screen size, as each sets it */
+        if (d2wide_width() && rt_r32(G_MEM, 0x7c9138) == 800) rt_w32(G_MEM, 0x7c9138, (uint32_t)d2wide_width());
+        break;
+    case 0x0044caed: if (d2wide_width() && c->eax == 3) c->eax = 0; break;     /* both side panels open: the world still shows between them */
+    case 0x0045aec6: case 0x0045aedd: if (d2wide_width()) c->eax = 200; break;   /* one side panel open: the view slides by half a panel */
+    case 0x0045af07: if (d2wide_width()) c->edx = 200; break;                  /* (not a quarter of the wider screen) */
+    case 0x0044ba50: if (d2wide_width()) { c->eax = (uint32_t)d2wide_width(); rt_w32(G_MEM, 0x71146c, c->eax); d2wide_screen_set(); } break;   /* the client's screen width */
     /* more frames than ticks (D2_FPS, d2smooth.c) */
     case 0x0044c790: d2smooth_tick(); break;                                   /* the client's game tick */
     case 0x0044f278:                                                           /* in game: draw when a frame is due, not only after a tick */
@@ -32,7 +42,9 @@ void rt_hook(Ctx *c, uint32_t addr)
         break;
     case 0x0044f28b: d2smooth_before_draw(); break;                            /* the game's draw ... */
     case 0x0044f291: d2smooth_after_draw(); break;                             /* ... and after it */
-    default:   /* development trace hooks (tools/lift.py DS_TRACE_HOOKS) */
+    default:
+        if (d2wide_mark(addr) || d2wide_quarter(c, addr)) break;                                          /* wide: right-hand interface drawn at 800x600 places */
+        /* development trace hooks (tools/lift.py DS_TRACE_HOOKS) */
         if (getenv("DS_HOOKTRACE")) fprintf(stderr, "hook %08x: eax %08x ecx %08x edx %08x ebx %08x esi %08x edi %08x | ret %08x args %08x %08x %08x %08x\n",
                                             addr, c->eax, c->ecx, c->edx, c->ebx, c->esi, c->edi, rt_r32(G_MEM, c->esp), rt_r32(G_MEM, c->esp + 4),
                                             rt_r32(G_MEM, c->esp + 8), rt_r32(G_MEM, c->esp + 12), rt_r32(G_MEM, c->esp + 16));

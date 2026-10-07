@@ -35,7 +35,8 @@ as the fallback):
    scaled up), with texture filtering choices.
 3. **Arbitrary frame rate** (done 2026-10-07: Direct3D → Frame Rate Original · 60 · 120 · Display): the game simulates at 25 Hz; drawing in between needs interpolated positions (hooks in
    the client's drawing). Feasibility first, then build.
-4. **Ultra-wide**: the game draws a wider scene (its resolution tables, interface anchoring, culling patched).
+4. **Ultra-wide** (done 2026-10-07: Direct3D → Width Original · Display; the help screen's labels still point at
+   800×600 places): the game draws a wider scene (its resolution tables, interface anchoring, culling patched).
    Feasibility first. (It shows more of the map than the original; some consider that unfair in multiplayer.)
 
 ### Frame-rate spike (2026-10-07)

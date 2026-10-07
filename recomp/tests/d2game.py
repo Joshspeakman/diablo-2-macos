@@ -70,12 +70,15 @@ def gold_fraction(path, box):
             p = rows[y][x]; n += 1
             if p[0] > 140 and p[1] > 110 and p[2] < 120 and p[0] > p[2] + 50: g += 1
     return g / max(n, 1)
-def differs(p1, p2):
-    w, h, r1 = png.load(p1); _, _, r2 = png.load(p2); d = 0
-    for y in range(0, h - 100, 4):
-        for x in range(0, w, 4):
+def differs(p1, p2, box=None):
+    """the share of samples (every 4th pixel) that changed between two screenshots, in a box (else above the bottom bar)"""
+    w, h, r1 = png.load(p1); _, _, r2 = png.load(p2); d = n = 0
+    x0, y0, x1, y1 = box or (0, 0, w, h - 100)
+    for y in range(y0, y1, 4):
+        for x in range(x0, x1, 4):
+            n += 1
             if sum(abs(r1[y][x][k] - r2[y][x][k]) for k in range(3)) > 60: d += 1
-    return d / ((h - 100) // 4 * w // 4)
+    return d / max(n, 1)
 def log_sizes(game):
     return {l.split('(')[1].split(')')[0] for l in open(game.log) if ': frame ' in l and ' fps' in l}
 def wav_rms(path, t0, t1):

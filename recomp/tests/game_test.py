@@ -22,7 +22,9 @@ recorded sound and the files the game writes:
             at the display's resolution with smooth textures (D2_RESOLUTION=display, D2_TEXTURES=smooth): a larger
             frame with the HUD in its place and the same overall brightness; then at 60 frames a second (D2_FPS=60)
             while walking: 12 consecutive frames about 16 ms apart, each moved on from the one before, by even steps
-            (the movement blended between the game's 25 ticks, not repeated frames)
+            (the movement blended between the game's 25 ticks, not repeated frames); then 1400 wide (D2_WIDTH): the
+            menus in the middle with bars at the sides, in game a 1400x600 frame with the orbs at its edges, and the
+            inventory opening at the right edge (the middle of the screen untouched)
   tcpip     two instances: one hosts a TCP/IP game, the other joins it by this Mac's LAN address; both are in Act 1
             and the host's server has accepted the second player
 
@@ -157,6 +159,19 @@ try:
         gaps_sorted = sorted(gaps); median = gaps_sorted[len(gaps) // 2] if gaps else 99
         report('d3d-fps', len(fr) == 12 and median <= 20 and min(xs) >= 1 and max(xs) - min(xs) <= 2 and g.alive(),
                '%d frames, %s ms apart; the picture moved %s pixels each frame' % (len(fr), gaps, xs))
+        g.stop()
+        W = 1400
+        g = Game('d3d-wide', {'D2_RENDERER': 'd3d', 'D2_WIDTH': str(W)}, saves=found[:1]); to_hero_select(g)
+        menu = g.shot('wide-menu'); mw, mh, _ = png.load(menu)
+        bars = max(brightness(menu, (0, 0, 290, 600)), brightness(menu, (W - 290, 0, W, 600))); mid = brightness(menu, (310, 0, W - 310, 600))
+        g.send('click:690,555', 12); s0 = g.shot('wide-game'); w, h, _ = png.load(s0)
+        life, mana = png.mean(png.load(s0)[2], 40, 520, 110, 590), png.mean(png.load(s0)[2], W - 100, 520, W - 30, 590)
+        orbs = life[0] > 2 * (life[1] + life[2]) / 2 + 30 and mana[2] > 2 * (mana[0] + mana[1]) / 2 + 30
+        g.send('key:73', 1.5); s1 = g.shot('wide-inventory')
+        panel = brightness(s1, (W - 380, 80, W - 100, 300)); where = brightness(s1, (420, 80, 700, 300))   # stone grey there, world where it would be at 800x600
+        report('d3d-wide', mw == W and bars < 1 and mid > 5 and (w, h) == (W, 600) and orbs and panel > 2 * where and g.alive(),
+               'menus %dx%d (sides %.1f, middle %.1f); game %dx%d, orbs %s; inventory at the right edge %.1f, at its 800x600 place %.1f' % (
+                   mw, mh, bars, mid, w, h, 'at the edges' if orbs else 'missing', panel, where))
         g.stop()
     # ---------------- TCP/IP: one instance hosts, another joins ----------------
     if stage('tcpip'):

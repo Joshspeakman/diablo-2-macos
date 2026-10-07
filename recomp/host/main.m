@@ -643,8 +643,17 @@ int main(int argc, char **argv)
              * frame drawn that much larger by the renderer (DSR_RENDER_SCALE); a whole multiple with the game's sharp
              * textures (each texel an even block), the display's exact size with smooth ones */
             const char *res = getenv("D2_RESOLUTION"), *ren = getenv("D2_RENDERER");
+            /* Direct3D wider than 4:3 (the launcher's Width row, runtime/win32/d2wide.c): D2_WIDTH a width at 600 high, or
+             * "display" for the display's own shape */
+            const char *wide = getenv("D2_WIDTH");
+            if (wide && !strcmp(wide, "display")) {
+                int w = (int)lround(600.0 * w32_screen_w / (w32_screen_h > 0 ? w32_screen_h : 600)) & ~1;
+                char v[16]; snprintf(v, sizeof v, "%d", w < 800 ? 800 : w > 2400 ? 2400 : w); setenv("D2_WIDTH", v, 1);
+            }
+            if (!ren || strcmp(ren, "d3d")) unsetenv("D2_WIDTH");
+            int game_w = getenv("D2_WIDTH") && atoi(getenv("D2_WIDTH")) > 800 ? atoi(getenv("D2_WIDTH")) : 800;
             if (res && !strcmp(res, "display") && ren && !strcmp(ren, "d3d") && !getenv("DSR_RENDER_SCALE")) {
-                double f = fmin(w32_screen_w * w32_screen_scale / 800.0, w32_screen_h * w32_screen_scale / 600.0);
+                double f = fmin(w32_screen_w * w32_screen_scale / game_w, w32_screen_h * w32_screen_scale / 600.0);
                 int smooth = getenv("D2_TEXTURES") && !strcmp(getenv("D2_TEXTURES"), "smooth");
                 f = fmin(smooth ? f : floor(f), 4.0);
                 if (f > 1) { char v[16]; snprintf(v, sizeof v, "%.4f", f); setenv("DSR_RENDER_SCALE", v, 1); }
