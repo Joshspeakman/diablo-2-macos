@@ -18,7 +18,9 @@ recorded sound and the files the game writes:
   load      Single Player lists MacTest; OK enters the game again with the HUD
   gdi       the game's windowed renderer (D2_RENDERER=gdi) reaches the main menu, also exactly through the palette
   d3d       the game's Direct3D renderer (D2_RENDERER=d3d) in each view (D2_PERSPECTIVE off, on): a new character in
-            Act 1 with the HUD drawn, the game reading the view chosen, and the two views' pictures different
+            Act 1 with the HUD drawn, the game reading the view chosen, and the two views' pictures different; then
+            at the display's resolution with smooth textures (D2_RESOLUTION=display, D2_TEXTURES=smooth): a larger
+            frame with the HUD in its place and the same overall brightness
   tcpip     two instances: one hosts a TCP/IP game, the other joins it by this Mac's LAN address; both are in Act 1
             and the host's server has accepted the second player
 
@@ -139,6 +141,12 @@ try:
             g.stop()
         d = differs(shots['off'], shots['on'])
         report('d3d', good and d > 0.05, '%s; the same place differs in %.0f%% of samples' % ('; '.join(notes), 100 * d))
+        g = Game('d3d-display', {'D2_RENDERER': 'd3d', 'D2_PERSPECTIVE': 'on', 'D2_RESOLUTION': 'display', 'D2_TEXTURES': 'smooth'}, saves=found[:1])
+        to_hero_select(g); g.send('click:690,555', 12); s = g.shot('d3d-display')
+        w, h, _ = png.load(s); ok = hud(s)[0]; b, b0 = brightness(s), brightness(shots['on'])
+        report('d3d-hd', w > 800 and abs(w * 3 - h * 4) <= 4 and ok and abs(b - b0) < 0.15 * b0 and g.alive(),
+               '%dx%d frame, HUD %s, brightness %.1f (800x600: %.1f)' % (w, h, 'drawn' if ok else 'missing', b, b0))
+        g.stop()
     # ---------------- TCP/IP: one instance hosts, another joins ----------------
     if stage('tcpip'):
         def to_tcpip(g):

@@ -7,7 +7,7 @@ struct Uniforms {
     float4x4 wv;         // world*view
     float4x4 tex0;       // texture-0 transform
     float4 vp;           // viewport x, y, w, h (pixels)
-    float4 fog;          // start, end, enabled, unused
+    float4 fog;          // start, end, enabled, point size (pixels of the target: larger when it is scaled)
     float4 fogcolor;
     float4 tfactor;
     int4 c0;             // stage 0: colorop, colorarg1, colorarg2, alphaop
@@ -49,7 +49,7 @@ static float2 ttf(float2 uv, float4x4 m, int tci, int flags)
 }
 vertex VOut vs_main(VIn in [[stage_in]], constant Uniforms &u [[buffer(1)]])
 {
-    VOut o; o.psize = 1.0;
+    VOut o; o.psize = max(u.fog.w, 1.0);
     if (u.misc.x) {          // XYZRHW: already in screen space
         float w = in.pos.w != 0 ? 1.0 / in.pos.w : 1.0;
         float x = (in.pos.x + 0.5 - u.vp.x) / u.vp.z * 2.0 - 1.0;   // +0.5: D3D samples pixel centres at integers

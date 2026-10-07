@@ -50,8 +50,8 @@ def palette_exact(path):
             if (p[0] << 16 | p[1] << 8 | p[2]) in colours: good += 1
     return good / (w * h)
 def hud(path):
-    w, h, rows = png.load(path)
-    life, mana = png.mean(rows, 40, 520, 110, 590), png.mean(rows, 700, 520, 770, 590)
+    w, h, rows = png.load(path); f = w / 800                    # (a frame drawn larger: the same places, scaled)
+    life, mana = png.mean(rows, *(int(v * f) for v in (40, 520, 110, 590))), png.mean(rows, *(int(v * f) for v in (700, 520, 770, 590)))
     return life[0] > 2 * (life[1] + life[2]) / 2 + 30 and mana[2] > 2 * (mana[0] + mana[1]) / 2 + 30, life, mana
 def brightness(path, box=None):
     w, h, rows = png.load(path); m = png.mean(rows, *(box or (0, 0, w, h))); return sum(m) / 3

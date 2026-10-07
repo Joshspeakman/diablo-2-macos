@@ -639,6 +639,17 @@ int main(int argc, char **argv)
             }
         }
         if (@available(macOS 12.0, *)) if (!getenv("DS_BORDERLESS") && !notch_around()) w32_screen_h -= (int)NSScreen.mainScreen.safeAreaInsets.top;   /* full screen below a notch (the launcher's Notch row) */
+        {   /* Direct3D at the display's resolution (the launcher's Resolution row, D2_RESOLUTION=display): the game's 800x600
+             * frame drawn that much larger by the renderer (DSR_RENDER_SCALE); a whole multiple with the game's sharp
+             * textures (each texel an even block), the display's exact size with smooth ones */
+            const char *res = getenv("D2_RESOLUTION"), *ren = getenv("D2_RENDERER");
+            if (res && !strcmp(res, "display") && ren && !strcmp(ren, "d3d") && !getenv("DSR_RENDER_SCALE")) {
+                double f = fmin(w32_screen_w * w32_screen_scale / 800.0, w32_screen_h * w32_screen_scale / 600.0);
+                int smooth = getenv("D2_TEXTURES") && !strcmp(getenv("D2_TEXTURES"), "smooth");
+                f = fmin(smooth ? f : floor(f), 4.0);
+                if (f > 1) { char v[16]; snprintf(v, sizeof v, "%.4f", f); setenv("DSR_RENDER_SCALE", v, 1); }
+            }
+        }
         w32_crash_init(data, DS_BUILD); w32_crash_thread("macOS UI thread");
         { void w32_registry_install(const char *); w32_registry_install(data); }   /* values the game's installer would have written */
         NSSetUncaughtExceptionHandler(on_objc_exception);

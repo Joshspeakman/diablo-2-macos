@@ -14,7 +14,8 @@ this repository: the build regenerates everything locally from your copy, and th
 - the game's own DirectDraw renderer (default) or its windowed mode, both drawing the original 8-bit pictures, shown
   with a choice of scaling filters (sharp pixels, smooth, nearest, CRT scanlines);
 - the game's Direct3D renderer on Metal, with both of its views: Isometric (the classic flat view) and Perspective (the
-  ground tilting away toward the horizon);
+  ground tilting away toward the horizon), at the original 800×600 or drawn at the display's resolution, with the
+  original sharp textures or smooth (filtered) ones;
 - sound through DirectSound on Core Audio: music, effects, speech.
 
 Battle.net and Open Battle.net are untested. What's next: [docs/PLAN.md](docs/PLAN.md).
@@ -43,7 +44,9 @@ has:
 | Setting | Choices |
 |---|---|
 | Video | **DirectDraw** (the classic renderer, plays the cinematics) · Direct3D (the game's 3D renderer) · Windowed Mode (the game's `-w` renderer; no cinematics) |
-| Direct3D → View | **Game's Choice** (as last set in the game's Options → Video → Perspective) · Isometric · Perspective |
+| Direct3D → View | **Game's Choice** (the game's Options → Video → Perspective, as it last saved it) · Isometric · Perspective |
+| Direct3D → Resolution | **Original** (800×600, scaled to the display like DirectDraw) · Display (the game's frame drawn at the display's resolution: crisp edges and text) |
+| Direct3D → Textures | **Sharp** (the original pixels) · Smooth (bilinear filtering; cut-out sprites keep clean edges) |
 | Display → Scaling | **Sharp** (square pixels, smoothed only at their edges) · Smooth (bilinear) · Pixel (nearest) · CRT (sharp with scanlines) |
 | Display → Notch | Hide the Notch (the picture below the camera) · Around the Notch |
 | Updates | rebuilds the app from the newest commit of its branch, from your own copy |
@@ -73,6 +76,8 @@ recomp/tests/run_tests.sh "/path/to/Diablo II"   # and the game end to end (afte
     loads it back into the game;
   - *d3d*: the Direct3D renderer: a new character is made and saved, then loaded in the Isometric and the Perspective
     view; the HUD is drawn in each, the game keeps the view chosen, and the same place looks different in the two;
+  - *d3d-hd*: the same character at the display's resolution with smooth textures: a larger 4:3 frame, the HUD in
+    its place, the same brightness as at 800×600;
   - *tcpip*: two instances, one hosting and one joining by this Mac's LAN address, both in Act 1.
 - **Coverage** (`coverage_test.py`, about an hour; run it on its own): a character of every class is made through the
   menus, given every class skill (`tests/d2s.py` edits these scratch characters only), leaves town by its waypoint and
@@ -105,6 +110,12 @@ Notes on Diablo II:
   triangles; `ddraw_pal.c` turns its textures (16-bit, colour keys) into GPU textures and its draws, states and
   DirectX 5-style texture blending into the Metal renderer's commands. The view is the game's `Perspective` registry
   value, which the launch window can set at each start (`D2_PERSPECTIVE=on|off`).
+- Display resolution (`D2_RESOLUTION=display`) uses the renderer's render scale (`DSR_RENDER_SCALE`): screen-sized
+  targets are made that much larger and the game's screen-space triangles are rasterised into them, so geometry,
+  text and texture detail are drawn at the display's pixels rather than scaled up afterwards. With sharp textures the
+  scale is a whole number (each texel an even block; the present filter covers the rest), with smooth ones the
+  display's exact size. Smooth textures (`D2_TEXTURES=smooth`) force bilinear filtering; transparent texels take
+  their visible neighbours' colour and cut-outs are tested at half alpha, so sprites get no dark fringe.
 - The game's language file `D2.LNG` is loaded as a resource-only module; characters are kept where 1.14d keeps them on
   Windows (`SHGetKnownFolderPath` Saved Games); settings the game keeps in the registry persist in
   `<data>/registry.txt`.
@@ -120,7 +131,8 @@ recomp/run.sh "/path/to/Diablo II"                    # play from the build (dat
 ```
 
 Environment for development: `DS_TEST=1` (background window, no launch window), `D2_RENDERER=ddraw|gdi|d3d`,
-`D2_PERSPECTIVE=on|off`, `W32_REGLOG=1`,
+`D2_PERSPECTIVE=on|off`, `D2_RESOLUTION=original|display`, `D2_TEXTURES=sharp|smooth`, `DSR_RENDER_SCALE=<1-4>`,
+`W32_REGLOG=1`,
 `DSR_FILTER=sharp|smooth|pixel|crt`, `W32_DDLOG=1`, `W32_NETLOG=1`, `W32_SEHLOG=1`, `W32_TRACE=<file>`,
 `W32_AUDIO_DUMP=<file.wav>`, `DS_CMDFILE=<file>` (scripted clicks, keys, typing and screenshots).
 

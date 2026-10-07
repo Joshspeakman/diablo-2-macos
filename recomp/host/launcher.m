@@ -340,19 +340,40 @@ static NSArray<NSDictionary *> *scaling_choices(void)
              @{@"value": @"pixel", @"label": @"Pixel", @"note": @"Nearest pixel: hard edges, uneven sizes"},
              @{@"value": @"crt", @"label": @"CRT", @"note": @"Sharp, with the scanlines of a 2000-era monitor"}];
 }
+/* Direct3D's picture: the game's 800x600 frame, or drawn at the display's resolution (D2_RESOLUTION, host/main.m) */
+static NSArray<NSDictionary *> *resolution_choices(void)
+{
+    return @[@{@"value": @"original", @"label": @"Original", @"note": @"800x600, scaled to the display like DirectDraw"},
+             @{@"value": @"display", @"label": @"Display", @"note": @"Drawn at the display's resolution: crisp edges and text"}];
+}
+/* Direct3D's textures: as the game samples them, or filtered (D2_TEXTURES, runtime/win32/ddraw_pal.c) */
+static NSArray<NSDictionary *> *texture_choices(void)
+{
+    return @[@{@"value": @"sharp", @"label": @"Sharp", @"note": @"The original pixels, each an even square"},
+             @{@"value": @"smooth", @"label": @"Smooth", @"note": @"Filtered: softer sprites and ground, no stair-steps"}];
+}
 static NSInteger index_of(NSArray<NSDictionary *> *c, NSString *v, NSInteger dflt)
 {
     for (NSUInteger k = 0; k < c.count; k++) if ([c[k][@"value"] isEqualToString:v ?: @""]) return (NSInteger)k;
     return dflt;
 }
-/* the chosen settings as environment for the runtime (read later at start-up) */
-static void apply(NSString *video, NSString *view, NSString *scaling, NSString *notch)
+/* the chosen settings (row key -> value) as environment for the runtime (read later at start-up); Direct3D's only
+ * with Direct3D (the game's own Perspective setting is left alone otherwise) */
+static void apply(NSDictionary<NSString *, NSString *> *v)
 {
-    setenv("D2_RENDERER", video.UTF8String, 1);
-    if ([view isEqualToString:@"game"] || ![video isEqualToString:@"d3d"]) unsetenv("D2_PERSPECTIVE");   /* the game's setting left alone */
-    else setenv("D2_PERSPECTIVE", view.UTF8String, 1);
-    setenv("DSR_FILTER", scaling.UTF8String, 1);
-    setenv("DS_NOTCH", notch.UTF8String, 1);
+    BOOL d3d = [v[@"video"] isEqualToString:@"d3d"];
+    setenv("D2_RENDERER", v[@"video"].UTF8String, 1);
+    if (!d3d || [v[@"view"] isEqualToString:@"game"]) unsetenv("D2_PERSPECTIVE"); else setenv("D2_PERSPECTIVE", v[@"view"].UTF8String, 1);
+    if (d3d) { setenv("D2_RESOLUTION", v[@"resolution"].UTF8String, 1); setenv("D2_TEXTURES", v[@"textures"].UTF8String, 1); }
+    else { unsetenv("D2_RESOLUTION"); unsetenv("D2_TEXTURES"); }
+    setenv("DSR_FILTER", v[@"scaling"].UTF8String, 1);
+    setenv("DS_NOTCH", v[@"notch"].UTF8String, 1);
+}
+static NSDictionary<NSString *, NSString *> *chosen(NSDictionary<NSString *, DSRow *> *rows)   /* row key -> its value */
+{
+    NSMutableDictionary *d = [NSMutableDictionary dictionary];
+    for (NSString *k in rows) d[k] = rows[k].choices[rows[k].index][@"value"];
+    return d;
 }
 @interface DSBlockTarget : NSObject      /* a button action as a block */
 @property (copy) void (^fire)(NSInteger tag);
@@ -471,9 +492,12 @@ int ds_launcher_run(const char *game_dir, const char *data_dir)
     DSRow *view = [DSRow new]; view.title = @"View"; view.choices = view_choices(); view.index = index_of(view.choices, saved[@"view"], 0);
     DSRow *scale = [DSRow new]; scale.title = @"Scaling"; scale.choices = scaling_choices(); scale.index = index_of(scale.choices, saved[@"scaling"], 0);
     DSRow *notch = [DSRow new]; notch.title = @"Notch"; notch.choices = notch_choices(); notch.index = index_of(notch.choices, saved[@"notch"], 0);
+    DSRow *res = [DSRow new]; res.title = @"Resolution"; res.choices = resolution_choices(); res.index = index_of(res.choices, saved[@"resolution"], 0);
+    DSRow *texr = [DSRow new]; texr.title = @"Textures"; texr.choices = texture_choices(); texr.index = index_of(texr.choices, saved[@"textures"], 0);
+    NSDictionary<NSString *, DSRow *> *rows = @{@"video": video, @"view": view, @"resolution": res, @"textures": texr, @"scaling": scale, @"notch": notch};
     const char *shot = getenv("DS_LAUNCHER_SHOT");
     if (getenv("DS_NO_LAUNCHER") && !shot) {
-        if (saved.count) apply(video.choices[video.index][@"value"], view.choices[view.index][@"value"], scale.choices[scale.index][@"value"], notch.choices[notch.index][@"value"]);
+        if (saved.count) apply(chosen(rows));
         return 1;
     }
 
@@ -485,9 +509,13 @@ int ds_launcher_run(const char *game_dir, const char *data_dir)
     upd.choices = update_choice(ustate, branch, built, nil);
     BOOL shotMode = shot != NULL;
     DSSection *display = [DSSection new], *d3dSec = [DSSection new], *updSec = [DSSection new];
-    d3dSec.title = @"Direct3D"; d3dSec.rows = @[view];
+    d3dSec.title = @"Direct3D"; d3dSec.rows = @[view, res, texr];
     __weak DSRow *wvid = video, *wview = view;
-    d3dSec.summary = ^NSString * { return [wvid.choices[wvid.index][@"value"] isEqualToString:@"d3d"] ? wview.choices[wview.index][@"label"] : @"Used when Video is Direct3D"; };
+    __weak DSRow *wres = res, *wtex = texr;
+    d3dSec.summary = ^NSString * {
+        if (![wvid.choices[wvid.index][@"value"] isEqualToString:@"d3d"]) return @"Used when Video is Direct3D";
+        return [NSString stringWithFormat:@"%@ · %@ · %@", wview.choices[wview.index][@"label"], wres.choices[wres.index][@"label"], wtex.choices[wtex.index][@"label"]];
+    };
     display.title = @"Display"; display.rows = notch_height() > 0 ? @[scale, notch] : @[scale];
     updSec.title = @"Updates"; updSec.summary = ^NSString * { NSDictionary *c = upd.choices[upd.index]; return [c[@"note"] length] ? [NSString stringWithFormat:@"%@ · %@", c[@"label"], c[@"note"]] : c[@"label"]; };
     DSLaunchView *v = [[DSLaunchView alloc] initWithFrame:NSMakeRect(0, 0, 780, 620)];
@@ -550,8 +578,8 @@ int ds_launcher_run(const char *game_dir, const char *data_dir)
     [NSApp runModalForWindow:w];
     [w orderOut:nil];
     if (!result) return 0;
-    NSString *vv = video.choices[video.index][@"value"], *wv2 = view.choices[view.index][@"value"], *sv = scale.choices[scale.index][@"value"], *nv = notch.choices[notch.index][@"value"];
-    [@{@"video": vv, @"view": wv2, @"scaling": sv, @"notch": nv} writeToFile:plistPath atomically:YES];
-    apply(vv, wv2, sv, nv);
+    NSDictionary *values = chosen(rows);
+    [values writeToFile:plistPath atomically:YES];
+    apply(values);
     return result;
 }
