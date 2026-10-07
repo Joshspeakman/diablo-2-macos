@@ -79,8 +79,11 @@ IMPL(kernel32, LoadLibraryA)
 IMPL(kernel32, LoadLibraryExA)
 {
     if (getenv("W32_LIBLOG")) fprintf(stderr, "w32: LoadLibraryExA(%s, flags %x)\n", GS(ARG(0)), ARG(2));
+    uint32_t w32_load_datafile(const char *);
+    if (ARG(2) & 2) { uint32_t b = w32_load_datafile(GS(ARG(0))); if (b) RET(b, 3); }   /* LOAD_LIBRARY_AS_DATAFILE: its resources */
     { uint32_t b = w32_load_library(c, GS(ARG(0))); if (b) RET(b, 3); }
     int k = dll_index(GS(ARG(0)));
+    if (k < 0) { uint32_t b = w32_load_datafile(GS(ARG(0))); if (b) RET(b, 3); }       /* a resource-only DLL */
     if (k < 0) { fprintf(stderr, "w32: LoadLibraryExA(%s) -> not available\n", GS(ARG(0))); w32_set_last_error(c, 126); RET(0, 3); }
     RET(MODULE_BASE + 0x100000u * (uint32_t)k, 3);
 }

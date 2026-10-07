@@ -14,13 +14,15 @@ typedef struct Buf {
     int used, primary, refs; uint32_t obj, mem, size, flags;           /* guest object, guest ring, bytes */
     int ch, bits, rate, align; double gain_l, gain_r; int32_t vol, pan; uint32_t freq;
     _Atomic uint32_t play; double frac; _Atomic int playing, looping;
+    int *mem_refs;                                                     /* buffers sharing mem (DuplicateSoundBuffer) */
 } Buf;
-static Buf bufs[64]; static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+#define NBUF 256
+static Buf bufs[NBUF]; static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 static uint32_t vt_ds, vt_buf, ds_obj; static int ds_refs;
 static AudioComponentInstance au; static _Atomic int primary_playing;
 static _Atomic uint32_t slice_max = 512;                  /* largest render the device asked for: the write cursor's lead */
 
-static Buf *B(uint32_t obj) { uint32_t k = rt_r32(G_MEM, obj + 4); return k < 64 && bufs[k].used && bufs[k].obj == obj ? &bufs[k] : 0; }
+static Buf *B(uint32_t obj) { uint32_t k = rt_r32(G_MEM, obj + 4); return k < NBUF && bufs[k].used && bufs[k].obj == obj ? &bufs[k] : 0; }
 static void set_gain(Buf *b)
 {
     double v = b->vol <= -10000 ? 0 : pow(10.0, b->vol / 2000.0);                         /* 1/100 dB */
@@ -38,7 +40,7 @@ static OSStatus render(void *u, AudioUnitRenderActionFlags *fl, const AudioTimeS
     (void)u; (void)fl; (void)ts; (void)bus;
     float *out = io->mBuffers[0].mData; memset(out, 0, frames * 8);
     if (frames > slice_max) slice_max = frames;
-    if (primary_playing) for (int k = 0; k < 64; k++) {
+    if (primary_playing) for (int k = 0; k < NBUF; k++) {
         Buf *b = &bufs[k]; if (!b->used || b->primary || !b->playing) continue;
         uint32_t nframes = b->size / b->align, pos = b->play / b->align; double step = (double)(b->freq ? b->freq : (uint32_t)b->rate) / OUT_RATE, fr = b->frac;
         for (UInt32 i = 0; i < frames; i++) {
@@ -82,7 +84,13 @@ static void b_AddRef(Ctx *c) { Buf *b = B(ARG(0)); RET(b ? ++b->refs : 0, 1); }
 static void b_Release(Ctx *c)
 {
     Buf *b = B(ARG(0)); if (!b) RET(0, 1);
-    int r = --b->refs; if (!r) { b->playing = 0; pthread_mutex_lock(&lock); b->used = 0; pthread_mutex_unlock(&lock); LOG("release buffer\n"); }
+    int r = --b->refs;
+    if (!r) {
+        b->playing = 0; pthread_mutex_lock(&lock); b->used = 0;
+        if (b->mem_refs && --*b->mem_refs == 0) { free(b->mem_refs); if (b->mem) heap_free(w32_process_heap, b->mem); }   /* the last user of the samples */
+        b->mem_refs = 0;
+        pthread_mutex_unlock(&lock); LOG("release buffer\n");
+    }
     RET(r, 1);
 }
 static void b_GetCaps(Ctx *c)
@@ -166,10 +174,11 @@ static void d_Release(Ctx *c) { int r = --ds_refs; RET(r < 0 ? 0 : r, 1); }
 static uint32_t new_buf(Buf **out)
 {
     pthread_mutex_lock(&lock);
-    int k = 0; while (k < 64 && bufs[k].used) k++;
-    if (k == 64) { pthread_mutex_unlock(&lock); return 0; }
-    Buf *b = &bufs[k]; memset(b, 0, sizeof *b); b->used = 1; b->refs = 1; set_gain(b);
-    b->obj = heap_alloc(w32_process_heap, 8, 16); rt_w32(G_MEM, b->obj, vt_buf); rt_w32(G_MEM, b->obj + 4, (uint32_t)k);
+    int k = 0; while (k < NBUF && bufs[k].used) k++;
+    if (k == NBUF) { pthread_mutex_unlock(&lock); static int once; if (!once++) fprintf(stderr, "dsound: all %d buffers in use\n", NBUF); return 0; }
+    Buf *b = &bufs[k]; uint32_t keep = b->obj; memset(b, 0, sizeof *b); b->used = 1; b->refs = 1; set_gain(b);
+    b->obj = keep ? keep : heap_alloc(w32_process_heap, 8, 16);       /* a slot's guest object is reused with it */
+    rt_w32(G_MEM, b->obj, vt_buf); rt_w32(G_MEM, b->obj + 4, (uint32_t)k);
     pthread_mutex_unlock(&lock);
     *out = b; return b->obj;
 }
@@ -183,6 +192,7 @@ static void d_CreateSoundBuffer(Ctx *c)
     if (!b->primary) {
         if (!wfx || bytes < 4) { b->used = 0; RET(DSERR_INVALIDPARAM, 4); }
         b->size = bytes / b->align * b->align; b->mem = heap_alloc(w32_process_heap, 8, b->size);
+        b->mem_refs = malloc(sizeof *b->mem_refs); *b->mem_refs = 1;
         memset(GP(b->mem), b->bits == 8 ? 0x80 : 0, b->size);
     }
     LOG("CreateSoundBuffer flags %#x, %u bytes, %d Hz %d bits %d ch%s\n", fl, bytes, b->rate, b->bits, b->ch, b->primary ? " (primary)" : "");
@@ -195,7 +205,17 @@ static void d_GetCaps(Ctx *c)
     rt_w32(G_MEM, p + 8, 100); rt_w32(G_MEM, p + 12, 200000); rt_w32(G_MEM, p + 16, 1);
     RET(DS_OK, 2);
 }
-static void d_DuplicateSoundBuffer(Ctx *c) { RET(DSERR_UNSUPPORTED, 3); }
+static void d_DuplicateSoundBuffer(Ctx *c)                       /* (original, out): the same samples, its own cursor and volume */
+{
+    Buf *o = B(ARG(1)), *b; if (!o || o->primary) RET(DSERR_INVALIDPARAM, 3);
+    uint32_t obj = new_buf(&b); if (!obj) RET(DSERR_GENERIC, 3);
+    pthread_mutex_lock(&lock);
+    b->flags = o->flags; b->ch = o->ch; b->bits = o->bits; b->rate = o->rate; b->align = o->align; b->size = o->size; b->mem = o->mem;
+    b->vol = o->vol; b->pan = o->pan; b->freq = o->freq; set_gain(b);
+    b->mem_refs = o->mem_refs; if (b->mem_refs) ++*b->mem_refs;
+    pthread_mutex_unlock(&lock);
+    rt_w32(G_MEM, ARG(2), obj); RET(DS_OK, 3);
+}
 static void d_SetCooperativeLevel(Ctx *c) { RET(DS_OK, 3); }
 static void d_Compact(Ctx *c) { RET(DS_OK, 1); }
 static void d_GetSpeakerConfig(Ctx *c) { rt_w32(G_MEM, ARG(1), 4 /* DSSPEAKER_STEREO */); RET(DS_OK, 2); }
