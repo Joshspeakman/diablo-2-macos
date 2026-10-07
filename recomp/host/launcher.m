@@ -360,6 +360,13 @@ static NSArray<NSDictionary *> *fps_choices(void)
              @{@"value": @"120", @"label": @"120", @"note": @"Smoother still, for 120 Hz displays"},
              @{@"value": @"display", @"label": @"Display", @"note": @"The display's own refresh rate"}];
 }
+/* Direct3D's width (D2_WIDTH, runtime/win32/d2wide.c): the game's 4:3, or the display's shape at the same height,
+ * showing more of the world to the sides */
+static NSArray<NSDictionary *> *width_choices(void)
+{
+    return @[@{@"value": @"800", @"label": @"Original", @"note": @"4:3, with bars at the sides of a wider display"},
+             @{@"value": @"display", @"label": @"Display", @"note": @"Wide: more of the world to the sides (others in multiplayer see less)"}];
+}
 static NSInteger index_of(NSArray<NSDictionary *> *c, NSString *v, NSInteger dflt)
 {
     for (NSUInteger k = 0; k < c.count; k++) if ([c[k][@"value"] isEqualToString:v ?: @""]) return (NSInteger)k;
@@ -375,6 +382,7 @@ static void apply(NSDictionary<NSString *, NSString *> *v)
     if (d3d) { setenv("D2_RESOLUTION", v[@"resolution"].UTF8String, 1); setenv("D2_TEXTURES", v[@"textures"].UTF8String, 1); }
     else { unsetenv("D2_RESOLUTION"); unsetenv("D2_TEXTURES"); }
     if (d3d && ![v[@"fps"] isEqualToString:@"25"]) setenv("D2_FPS", v[@"fps"].UTF8String, 1); else unsetenv("D2_FPS");
+    if (d3d && ![v[@"width"] isEqualToString:@"800"]) setenv("D2_WIDTH", v[@"width"].UTF8String, 1); else unsetenv("D2_WIDTH");
     setenv("DSR_FILTER", v[@"scaling"].UTF8String, 1);
     setenv("DS_NOTCH", v[@"notch"].UTF8String, 1);
 }
@@ -504,7 +512,9 @@ int ds_launcher_run(const char *game_dir, const char *data_dir)
     DSRow *res = [DSRow new]; res.title = @"Resolution"; res.choices = resolution_choices(); res.index = index_of(res.choices, saved[@"resolution"], 0);
     DSRow *texr = [DSRow new]; texr.title = @"Textures"; texr.choices = texture_choices(); texr.index = index_of(texr.choices, saved[@"textures"], 0);
     DSRow *fpsr = [DSRow new]; fpsr.title = @"Frame Rate"; fpsr.choices = fps_choices(); fpsr.index = index_of(fpsr.choices, saved[@"fps"], 0);
-    NSDictionary<NSString *, DSRow *> *rows = @{@"video": video, @"view": view, @"resolution": res, @"textures": texr, @"fps": fpsr, @"scaling": scale, @"notch": notch};
+    DSRow *widr = [DSRow new]; widr.title = @"Width"; widr.choices = width_choices(); widr.index = index_of(widr.choices, saved[@"width"], 0);
+    NSDictionary<NSString *, DSRow *> *rows = @{@"video": video, @"view": view, @"resolution": res, @"textures": texr, @"fps": fpsr, @"width": widr,
+                                                @"scaling": scale, @"notch": notch};
     const char *shot = getenv("DS_LAUNCHER_SHOT");
     if (getenv("DS_NO_LAUNCHER") && !shot) {
         if (saved.count) apply(chosen(rows));
@@ -519,12 +529,12 @@ int ds_launcher_run(const char *game_dir, const char *data_dir)
     upd.choices = update_choice(ustate, branch, built, nil);
     BOOL shotMode = shot != NULL;
     DSSection *display = [DSSection new], *d3dSec = [DSSection new], *updSec = [DSSection new];
-    d3dSec.title = @"Direct3D"; d3dSec.rows = @[view, res, texr, fpsr];
+    d3dSec.title = @"Direct3D"; d3dSec.rows = @[view, res, texr, fpsr, widr];
     __weak DSRow *wvid = video, *wview = view;
-    __weak DSRow *wres = res, *wtex = texr, *wfps = fpsr;
+    __weak DSRow *wres = res, *wtex = texr, *wfps = fpsr, *wwid = widr;
     d3dSec.summary = ^NSString * {
         if (![wvid.choices[wvid.index][@"value"] isEqualToString:@"d3d"]) return @"Used when Video is Direct3D";
-        NSString *f = wfps.index ? [NSString stringWithFormat:@" · %@ fps", wfps.choices[wfps.index][@"label"]] : @"";
+        NSString *f = [NSString stringWithFormat:@"%@%@", wfps.index ? [NSString stringWithFormat:@" · %@ fps", wfps.choices[wfps.index][@"label"]] : @"", wwid.index ? @" · Wide" : @""];
         return [NSString stringWithFormat:@"%@ · %@ · %@%@", wview.choices[wview.index][@"label"], wres.choices[wres.index][@"label"], wtex.choices[wtex.index][@"label"], f];
     };
     display.title = @"Display"; display.rows = notch_height() > 0 ? @[scale, notch] : @[scale];

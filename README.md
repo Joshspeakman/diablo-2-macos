@@ -15,8 +15,9 @@ this repository: the build regenerates everything locally from your copy, and th
   with a choice of scaling filters (sharp pixels, smooth, nearest, CRT scanlines);
 - the game's Direct3D renderer on Metal, with both of its views: Isometric (the classic flat view) and Perspective (the
   ground tilting away toward the horizon), at the original 800×600 or drawn at the display's resolution, with the
-  original sharp textures or smooth (filtered) ones, and at 60, 120 or the display's frame rate with movement blended
-  between the game's 25 ticks a second;
+  original sharp textures or smooth (filtered) ones, at 60, 120 or the display's frame rate with movement blended
+  between the game's 25 ticks a second, and as wide as the display (16:10, 16:9, ultra-wide) with the interface
+  anchored to its edges;
 - sound through DirectSound on Core Audio: music, effects, speech.
 
 Battle.net and Open Battle.net are untested. What's next: [docs/PLAN.md](docs/PLAN.md).
@@ -49,6 +50,7 @@ has:
 | Direct3D → Resolution | **Original** (800×600, scaled to the display like DirectDraw) · Display (the game's frame drawn at the display's resolution: crisp edges and text) |
 | Direct3D → Textures | **Sharp** (the original pixels) · Smooth (bilinear filtering; cut-out sprites keep clean edges) |
 | Direct3D → Frame Rate | **Original** (25, as the game draws) · 60 · 120 · Display (its refresh rate): movement blended between the game's ticks |
+| Direct3D → Width | **Original** (4:3) · Display (the display's shape at the same height: more of the world to the sides; others in multiplayer see less) |
 | Display → Scaling | **Sharp** (square pixels, smoothed only at their edges) · Smooth (bilinear) · Pixel (nearest) · CRT (sharp with scanlines) |
 | Display → Notch | Hide the Notch (the picture below the camera) · Around the Notch |
 | Updates | rebuilds the app from the newest commit of its branch, from your own copy |
@@ -82,6 +84,8 @@ recomp/tests/run_tests.sh "/path/to/Diablo II"   # and the game end to end (afte
     its place, the same brightness as at 800×600;
   - *d3d-fps*: the same character walking at 60 frames a second: 12 consecutive frames (read back from the GPU) about
     16 ms apart, each moved on from the one before by an even step (blended, not repeated);
+  - *d3d-wide*: the same character 1400 wide: the menus in the middle with black bars at the sides; in game a
+    1400×600 frame with the orbs at its edges and the inventory opening at the right edge (not at its 800×600 place);
   - *tcpip*: two instances, one hosting and one joining by this Mac's LAN address, both in Act 1.
 - **Coverage** (`coverage_test.py`, about an hour; run it on its own): a character of every class is made through the
   menus, given every class skill (`tests/d2s.py` edits these scratch characters only), leaves town by its waypoint and
@@ -126,6 +130,15 @@ Notes on Diablo II:
   positions blended between their last two ticks, putting the real ones back afterwards: only the picture sees them,
   and the camera follows the player's drawn position. Animation frames stay at 25 a second. The picture runs up to one
   tick (40 ms) behind the game, the cost of blending between known positions rather than guessing ahead.
+- Width (`D2_WIDTH`, `runtime/win32/d2wide.c`): 1.14d already half-supports other widths (an unused 1344×700 mode;
+  its bottom bar, orbs and right-hand panels' backgrounds follow the screen's width). The 800×600 mode reports the
+  wider size to the game's graphics layer, its renderers and the client (hooks at `0x4f55aa`, `0x509c3f`,
+  `0x51126f`, `0x6b5037`, `0x6c7b75`, `0x44ba50`, and the display mode). The rest is placed: the Inventory table's
+  right-hand rows (panel, grid, equipment slots) and the Belts table's boxes move out once, so pictures, items and
+  clicks agree; the right-hand panels' frame is drawn out by the extra width (a marked stretch of code); the 46
+  places that take a side panel as a quarter of the screen get 200 (half its 400 pixels), so the view slides and
+  the world ends where the panel does; the world is still drawn between two open panels; out of a game the menus are
+  drawn in the middle and the cursor kept to their 800 pixels.
 - The game's language file `D2.LNG` is loaded as a resource-only module; characters are kept where 1.14d keeps them on
   Windows (`SHGetKnownFolderPath` Saved Games); settings the game keeps in the registry persist in
   `<data>/registry.txt`.
@@ -141,7 +154,7 @@ recomp/run.sh "/path/to/Diablo II"                    # play from the build (dat
 ```
 
 Environment for development: `DS_TEST=1` (background window, no launch window), `D2_RENDERER=ddraw|gdi|d3d`,
-`D2_PERSPECTIVE=on|off`, `D2_RESOLUTION=original|display`, `D2_TEXTURES=sharp|smooth`, `D2_FPS=<n>|display`,
+`D2_PERSPECTIVE=on|off`, `D2_RESOLUTION=original|display`, `D2_TEXTURES=sharp|smooth`, `D2_FPS=<n>|display`, `D2_WIDTH=<n>|display`,
 `DSR_RENDER_SCALE=<1-4>`, `W32_BURST_DIR=<dir>` (tests: 12 consecutive frames when `<dir>/go` appears),
 `W32_REGLOG=1`,
 `DSR_FILTER=sharp|smooth|pixel|crt`, `W32_DDLOG=1`, `W32_NETLOG=1`, `W32_SEHLOG=1`, `W32_TRACE=<file>`,
