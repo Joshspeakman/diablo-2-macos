@@ -8,7 +8,8 @@ this repository: the build regenerates everything locally from your copy, and th
 **State: Beta 1.** The game is playable natively:
 
 - the Blizzard intro and the cinematics (Bink, with sound), the title, the menus;
-- single player: new characters of every class, Act 1 and onwards, the HUD, dialogue with speech, saving and loading;
+- single player: new characters of every class, all five acts (their towns and waypoints), every class's skills, the
+  HUD, dialogue with speech, saving and loading;
 - TCP/IP games (Other Multiplayer → TCP/IP): host on this Mac, join from another, play together;
 - the game's own DirectDraw renderer (default) or its windowed mode, both drawing the original 8-bit pictures, shown
   with a choice of scaling filters (sharp pixels, smooth, nearest, CRT scanlines);
@@ -69,6 +70,15 @@ recomp/tests/run_tests.sh "/path/to/Diablo II"   # and the game end to end (afte
   - *walk, save, load*: a click moves the character; Save and Exit writes a valid `.d2s`; Single Player lists it and
     loads it back into the game;
   - *tcpip*: two instances, one hosting and one joining by this Mac's LAN address, both in Act 1.
+- **Coverage** (`coverage_test.py`, about an hour; run it on its own): a character of every class is made through the
+  menus, given every class skill (`tests/d2s.py` edits these scratch characters only), leaves town by its waypoint and
+  casts each of its 30 skills, chosen through the game's own skill list in memory; then each act's town is loaded and
+  left by its waypoint (found among the map's presets) to the act's first destination, casting there. The game must
+  keep running and each chosen skill must be the one selected.
+
+  ```sh
+  python3 recomp/tests/coverage_test.py --game "/path/to/Diablo II"     # --classes Sorceress,Druid --acts 2,5 for a part
+  ```
 
 ## How it works
 
