@@ -245,12 +245,35 @@ static void surf_to_bgra(const PSurf *s, uint32_t *dst)
         }
     }
 }
+/* Direct3D's smooth textures (D2_TEXTURES=smooth): filtered texels near a cut-out's edge blend in the transparent ones,
+ * so those take the colour of their visible neighbours (two texels deep) instead of the key's black */
+static int smooth_textures(void) { static int v = -1; if (v < 0) v = getenv("D2_TEXTURES") && !strcmp(getenv("D2_TEXTURES"), "smooth"); return v; }
+static void bleed_edges(uint32_t *px, uint32_t w, uint32_t h)
+{
+    uint8_t *done = malloc((size_t)w * h);
+    for (uint32_t k = 0; k < w * h; k++) done[k] = px[k] >> 24 != 0;
+    for (int pass = 1; pass <= 2; pass++)
+        for (uint32_t y = 0; y < h; y++) for (uint32_t x = 0; x < w; x++) {
+            uint32_t k = y * w + x; if (done[k]) continue;
+            uint32_t r = 0, g = 0, b = 0, n = 0;
+            const int dx[4] = {-1, 1, 0, 0}, dy[4] = {0, 0, -1, 1};
+            for (int j = 0; j < 4; j++) {
+                int64_t xx = (int64_t)x + dx[j], yy = (int64_t)y + dy[j];
+                if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+                uint32_t q = (uint32_t)yy * w + (uint32_t)xx; if (!done[q] || done[q] > pass) continue;
+                r += px[q] >> 16 & 0xff; g += px[q] >> 8 & 0xff; b += px[q] & 0xff; n++;
+            }
+            if (n) { px[k] = (r / n) << 16 | (g / n) << 8 | (b / n); done[k] = (uint8_t)(pass + 1); }   /* still transparent */
+        }
+    free(done);
+}
 static void gpu_upload(PSurf *s)
 {
     if (!s->gid || s->gkind == 2) return;
     uint32_t *p = cmd_begin(DSR_SURFACE_UPLOAD, 24 + s->w * s->h * 4);
     p[0] = s->gid; p[1] = 0; p[2] = 0; p[3] = s->w; p[4] = s->h; p[5] = s->w * 4;
     surf_to_bgra(s, p + 6);
+    if (s->gkind == 3 && smooth_textures()) bleed_edges(p + 6, s->w, s->h);
     cmd_end(); s->gpu_newer = 0;
 }
 /* the GPU's pixels back into the CPU copy (a render target the game locks), in the surface's own format */
@@ -724,11 +747,16 @@ static void dev_set_tex(PDev *d, int stage, PSurf *t)                    /* the 
                surf_release(old); }
 }
 static void rs_emit(uint32_t st, uint32_t v) { uint32_t *p = cmd_begin(DSR_RENDER_STATE, 8); p[0] = st; p[1] = v; cmd_end(); }
-static void tss_emit(uint32_t stage, uint32_t t, uint32_t v) { uint32_t *p = cmd_begin(DSR_TSS, 12); p[0] = stage; p[1] = t; p[2] = v; cmd_end(); }
+static void tss_emit(uint32_t stage, uint32_t t, uint32_t v)
+{
+    if ((t == 16 || t == 17) && smooth_textures()) v = 2;                 /* smooth textures: bilinear, whatever the game asks */
+    uint32_t *p = cmd_begin(DSR_TSS, 12); p[0] = stage; p[1] = t; p[2] = v; cmd_end();
+}
 static void dev_alpha_test(PDev *d)                                     /* the game's alpha test, or the colour key's */
 {
-    if (d->rs[15]) { rs_emit(15, 1); rs_emit(24, d->rs[24]); rs_emit(25, d->rs[25] ? d->rs[25] : 8); }
-    else if (d->rs[41]) { rs_emit(15, 1); rs_emit(24, 0); rs_emit(25, 5); }     /* colour-keyed texels are transparent: alpha > 0 */
+    uint32_t half = smooth_textures() ? 0x7f : 0;                     /* smooth textures: a cut-out's edge where it is half covered */
+    if (d->rs[15]) { uint32_t f = d->rs[25] ? d->rs[25] : 8; rs_emit(15, 1); rs_emit(24, (f == 5 || f == 7) && d->rs[24] < half ? half : d->rs[24]); rs_emit(25, f); }
+    else if (d->rs[41]) { rs_emit(15, 1); rs_emit(24, half); rs_emit(25, 5); }  /* colour-keyed texels are transparent: alpha > 0 */
     else rs_emit(15, 0);
 }
 static void dev_texture_blend(PDev *d)                                  /* D3DRENDERSTATE_TEXTUREMAPBLEND as stage 0 operations */
@@ -860,6 +888,7 @@ M(d3_CreateDevice, 5) ME(PDraw, T_D3D)                                   /* (dev
     d->rs[7] = rt->zbuf ? 1 : 0; d->rs[14] = 1; d->rs[21] = 2; d->rs[22] = 3; d->rs[23] = 4; d->rs[25] = 8; d->rs[19] = 2; d->rs[20] = 1;
     for (int k = 0; k < 256; k++) if (d->rs[k]) rs_emit((uint32_t)k, d->rs[k]);
     rs_emit(22, 1);                                                   /* the game's 2D triangles come in either winding */
+    for (uint32_t k = 0; k < 2; k++) { tss_emit(k, 16, 1); tss_emit(k, 17, 1); }   /* point sampling (or smooth textures' bilinear) */
     dsr_d3d9_w = rt->w; dsr_d3d9_h = rt->h;
     dlog("CreateDevice on %ux%ux%u (GPU %u)%s", rt->w, rt->h, rt->bpp, rt->gid, rt->zbuf ? " with depth" : "");
     rt_w32(G_MEM, ARG(3), d->g); RET(DD_OK, 5);

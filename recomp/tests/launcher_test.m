@@ -1,4 +1,5 @@
-// The launch window: its settings reach the runtime (D2_RENDERER, D2_PERSPECTIVE, DSR_FILTER, DS_NOTCH) and are remembered in
+// The launch window: its settings reach the runtime (D2_RENDERER, D2_PERSPECTIVE, D2_RESOLUTION, D2_TEXTURES, DSR_FILTER,
+// DS_NOTCH) and are remembered in
 // launcher.plist; it draws with the game's art from <data>/art (or without it) at the expected size.
 //   clang -fobjc-arc -framework AppKit -framework Metal -framework ImageIO -lz recomp/tests/launcher_test.m -o /tmp/launcher_test && /tmp/launcher_test [art folder]
 #include "../host/launcher.m"
@@ -29,10 +30,17 @@ int main(int argc, char **argv)
             CHECK([env("D2_RENDERER") isEqualToString:@"d3d"]);
             CHECK([view isEqualToString:@"game"] ? env("D2_PERSPECTIVE") == nil : [env("D2_PERSPECTIVE") isEqualToString:view]);
         }
-        /* the view is left to the game when Direct3D isn't the renderer */
-        [@{@"video": @"ddraw", @"view": @"on", @"scaling": @"sharp", @"notch": @"hide"} writeToFile:[dir stringByAppendingPathComponent:@"launcher.plist"] atomically:YES];
+        /* Direct3D's picture: resolution and textures (the first choices when none were saved) */
+        CHECK([env("D2_RESOLUTION") isEqualToString:@"original"] && [env("D2_TEXTURES") isEqualToString:@"sharp"]);
+        [@{@"video": @"d3d", @"view": @"on", @"resolution": @"display", @"textures": @"smooth", @"scaling": @"sharp", @"notch": @"hide"}
+            writeToFile:[dir stringByAppendingPathComponent:@"launcher.plist"] atomically:YES];
         CHECK(ds_launcher_run("/nonexistent", dir.UTF8String) == 1);
-        CHECK([env("D2_RENDERER") isEqualToString:@"ddraw"] && env("D2_PERSPECTIVE") == nil);
+        CHECK([env("D2_RESOLUTION") isEqualToString:@"display"] && [env("D2_TEXTURES") isEqualToString:@"smooth"]);
+        /* Direct3D's settings are left out when it isn't the renderer (the game's own view setting kept) */
+        [@{@"video": @"ddraw", @"view": @"on", @"resolution": @"display", @"textures": @"smooth", @"scaling": @"sharp", @"notch": @"hide"}
+            writeToFile:[dir stringByAppendingPathComponent:@"launcher.plist"] atomically:YES];
+        CHECK(ds_launcher_run("/nonexistent", dir.UTF8String) == 1);
+        CHECK([env("D2_RENDERER") isEqualToString:@"ddraw"] && env("D2_PERSPECTIVE") == nil && env("D2_RESOLUTION") == nil && env("D2_TEXTURES") == nil);
         /* an unknown saved value falls back to the first choice */
         [@{@"video": @"glide", @"scaling": @"hq4x", @"notch": @"hide"} writeToFile:[dir stringByAppendingPathComponent:@"launcher.plist"] atomically:YES];
         CHECK(ds_launcher_run("/nonexistent", dir.UTF8String) == 1);

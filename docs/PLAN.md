@@ -30,7 +30,8 @@ as the fallback):
    pre-transformed triangles; the game projects in its own code, `glPerspective.cpp`). It brings the game's
    Options → Video → **Perspective**: off is the isometric ("pseudo 3D") view, on the tilted "true 3D" one (`-per`
    forces it). Launch window: Video DirectDraw · Direct3D · Windowed; View Game's Choice · Isometric · Perspective.
-2. **Remastered output**: the game's screen-space triangles drawn at the display's resolution (not an 800x600 picture
+2. **Remastered output** (done 2026-10-07: launch window Direct3D → Resolution Original · Display, Textures
+   Sharp · Smooth): the game's screen-space triangles drawn at the display's resolution (not an 800x600 picture
    scaled up), with texture filtering choices.
 3. **Arbitrary frame rate**: the game simulates at 25 Hz; drawing in between needs interpolated positions (hooks in
    the client's drawing). Feasibility first, then build.
