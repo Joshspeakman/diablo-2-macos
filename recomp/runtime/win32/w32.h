@@ -38,6 +38,10 @@ void     w32_exit(Ctx *c, uint32_t code) __attribute__((noreturn));
 extern volatile int w32_exited;
 extern uint32_t w32_exit_code;
 
+/* the recompiled images: [0] the game, then the DLLs recompiled with it (generated: tables.c) */
+struct rt_image { const char *name; uint32_t base, imp_first, imp_count; };
+extern const struct rt_image rt_images[]; extern const unsigned rt_images_n;
+
 /* virtual memory (guest) */
 uint32_t vm_alloc(uint32_t addr, uint32_t size, uint32_t type, uint32_t prot);
 int      vm_free(uint32_t addr, uint32_t size, uint32_t type);

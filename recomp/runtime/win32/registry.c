@@ -1,4 +1,5 @@
-/* ADVAPI32 registry: an in-memory tree (empty at start; the GOG game keeps its settings in INI files). */
+/* ADVAPI32 registry: an in-memory tree, kept in <data>/registry.txt between sessions (Diablo II keeps its options there:
+ * volumes, gamma, the last character, the video mode). */
 #include "w32.h"
 
 typedef struct RVal { char name[128]; uint32_t type, size; uint8_t *data; } RVal;
@@ -43,27 +44,69 @@ void w32_reg_string(const char *path, const char *name, const char *str)
     }
     pthread_mutex_unlock(&rlock);
 }
-/* What the game's installer would have written. The GOG and Steam releases never run that installer, so these are
- * filled in from the data folder at start-up:
- *   cdkey-hash.txt  DoubleHash, the 8-byte value the retail installer derives from the player's own product key
- *                   (install.sh --cd-key computes it the way the installer does). The game shows it to GameSpy (now
- *                   OpenSpy) as its CD key for multiplayer; without it multiplayer stops at "Could not find a valid
- *                   CDKey". Only the hash is kept, never the key. */
+/* ---- the registry between sessions: <data>/registry.txt, one value per line: key<TAB>name<TAB>type<TAB>hex data ---- */
+static char reg_file[1200]; static int reg_dirty;
+static RVal *val_put(RKey *k, const char *name)             /* (rlock held) the value, created empty if new */
+{
+    for (int j = 0; j < k->nv; j++) if (!strcasecmp(k->v[j].name, name)) return &k->v[j];
+    k->v = realloc(k->v, (size_t)(k->nv + 1) * sizeof *k->v); RVal *v = &k->v[k->nv++]; memset(v, 0, sizeof *v);
+    snprintf(v->name, sizeof v->name, "%s", name); return v;
+}
+static void reg_save(void)                                  /* (rlock held) */
+{
+    if (!*reg_file || !reg_dirty) return;
+    char tmp[1300]; snprintf(tmp, sizeof tmp, "%s.new", reg_file);
+    FILE *f = fopen(tmp, "w"); if (!f) return;
+    for (int k = 0; k < nkeys; k++) for (int j = 0; j < keys[k]->nv; j++) {
+        RVal *v = &keys[k]->v[j];
+        fprintf(f, "%s\t%s\t%u\t", keys[k]->path, v->name, v->type);
+        for (uint32_t b = 0; b < v->size; b++) fprintf(f, "%02x", v->data[b]);
+        fputc('\n', f);
+    }
+    if (fclose(f) == 0 && rename(tmp, reg_file) == 0) reg_dirty = 0;
+}
+static void reg_load(void)
+{
+    FILE *f = fopen(reg_file, "r"); if (!f) return;
+    char line[8192];
+    while (fgets(line, sizeof line, f)) {
+        char *t1 = strchr(line, '\t'), *t2 = t1 ? strchr(t1 + 1, '\t') : 0, *t3 = t2 ? strchr(t2 + 1, '\t') : 0;
+        if (!t3) continue;
+        *t1 = *t2 = *t3 = 0; char *hex = t3 + 1; size_t hl = strcspn(hex, "\r\n"); hex[hl] = 0;
+        RKey *k = lookup(line, 1); if (!k) continue;
+        RVal *v = val_put(k, t1 + 1); free(v->data);
+        v->type = (uint32_t)strtoul(t2 + 1, 0, 10); v->size = (uint32_t)(hl / 2); v->data = malloc(v->size ? v->size : 1);
+        for (uint32_t b = 0; b < v->size; b++) { unsigned x; sscanf(hex + 2 * b, "%2x", &x); v->data[b] = (uint8_t)x; }
+    }
+    fclose(f);
+}
+/* The registry at start-up: what was saved last time, then what Diablo II's installer would have written (where the
+ * game is; it has never run that installer here). The values the game itself writes (options, last character) are
+ * kept as it left them. */
 void w32_registry_install(const char *data_dir)
 {
-    char p[1200], hex[64] = ""; snprintf(p, sizeof p, "%s/cdkey-hash.txt", data_dir);
-    FILE *f = fopen(p, "r"); if (!f) return;
-    if (!fgets(hex, sizeof hex, f)) hex[0] = 0;
-    fclose(f);
-    uint8_t b[8]; int n = 0;
-    for (const char *q = hex; n < 8 && q[0] && q[1]; q += 2) { unsigned v; if (sscanf(q, "%2x", &v) != 1) break; b[n++] = (uint8_t)v; }
-    if (n != 8) { fprintf(stderr, "w32: %s: expected 16 hex digits\n", p); return; }
     pthread_mutex_lock(&rlock);
-    RKey *k = lookup("hklm\\software\\microsoft\\microsoft games\\dungeonsiege2", 1);
-    if (k) {
-        RVal *v = 0; for (int j = 0; j < k->nv; j++) if (!strcasecmp(k->v[j].name, "DoubleHash")) v = &k->v[j];
-        if (!v) { k->v = realloc(k->v, (size_t)(k->nv + 1) * sizeof *k->v); v = &k->v[k->nv++]; memset(v, 0, sizeof *v); snprintf(v->name, sizeof v->name, "DoubleHash"); }
-        free(v->data); v->type = 3; v->size = 8; v->data = malloc(8); memcpy(v->data, b, 8);   /* REG_BINARY */
+    snprintf(reg_file, sizeof reg_file, "%s/registry.txt", data_dir);
+    reg_load();
+    static const char *const inst[][3] = {
+        {"hklm\\software\\blizzard entertainment\\diablo ii", "InstallPath", "C:\\Program Files\\Diablo II"},
+        {"hkcu\\software\\blizzard entertainment\\diablo ii", "InstallPath", "C:\\Program Files\\Diablo II"},
+        {"hkcu\\control panel\\international", "sLanguage", "ENU"},   /* the game's language check reads it */
+    };
+    for (unsigned j = 0; j < sizeof inst / sizeof inst[0]; j++) {
+        RKey *k = lookup(inst[j][0], 1); RVal *v = k ? val_put(k, inst[j][1]) : 0;
+        if (v && !v->data) { v->type = 1; v->size = (uint32_t)strlen(inst[j][2]) + 1; v->data = (uint8_t *)strdup(inst[j][2]); }
+    }
+    /* the video mode, until the player picks another: DirectDraw (VideoConfig\Render 0; 1 is Direct3D, 3 Glide), the
+     * game's own software renderer, whose 8-bit frames this port shows (runtime/win32/ddraw_pal.c) */
+    {
+        const char *forced = getenv("D2_RENDER");                 /* tests: a given mode */
+        static const char *const vc[] = {"hklm\\software\\blizzard entertainment\\diablo ii\\videoconfig",
+                                         "hkcu\\software\\blizzard entertainment\\diablo ii\\videoconfig"};
+        for (int j = 0; j < 2; j++) {
+            RKey *k = lookup(vc[j], 1); RVal *v = k ? val_put(k, "Render") : 0;
+            if (v && (!v->data || forced)) { uint32_t m = forced ? (uint32_t)atoi(forced) : 0; free(v->data); v->type = 4; v->size = 4; v->data = malloc(4); memcpy(v->data, &m, 4); }
+        }
     }
     pthread_mutex_unlock(&rlock);
 }
@@ -131,6 +174,7 @@ IMPL(advapi32, RegSetValueExA)
     for (int j = 0; j < k->nv; j++) if (!strcasecmp(k->v[j].name, n)) v = &k->v[j];
     if (!v) { k->v = realloc(k->v, (size_t)(k->nv + 1) * sizeof *k->v); v = &k->v[k->nv++]; memset(v, 0, sizeof *v); snprintf(v->name, sizeof v->name, "%s", n); }
     free(v->data); v->type = type; v->size = size; v->data = malloc(size ? size : 1); memcpy(v->data, GP(data), size);
+    reg_dirty = 1; reg_save();
     pthread_mutex_unlock(&rlock);
     RET(0, 6);
 }
@@ -147,7 +191,7 @@ IMPL(advapi32, RegDeleteValueA)
     const char *n = ARG(1) ? GS(ARG(1)) : "";
     pthread_mutex_lock(&rlock);
     for (int j = 0; j < k->nv; j++) if (!strcasecmp(k->v[j].name, n)) {
-        free(k->v[j].data); k->v[j] = k->v[--k->nv]; pthread_mutex_unlock(&rlock); RET(0, 2);
+        free(k->v[j].data); k->v[j] = k->v[--k->nv]; reg_dirty = 1; reg_save(); pthread_mutex_unlock(&rlock); RET(0, 2);
     }
     pthread_mutex_unlock(&rlock); RET(2, 2);
 }
@@ -161,7 +205,7 @@ IMPL(advapi32, RegDeleteKeyA)                          /* only a key without sub
     for (int j = 0; j < nkeys; j++) if (keys[j] == k) { keys[j] = keys[--nkeys]; break; }
     for (int i = 0; i < 256; i++) if (rh[i] == k) rh[i] = 0;
     for (int v = 0; v < k->nv; v++) free(k->v[v].data);
-    free(k->v); free(k);
+    free(k->v); free(k); reg_dirty = 1; reg_save();
     pthread_mutex_unlock(&rlock); RET(0, 2);
 }
 IMPL(advapi32, RegEnumKeyExA)                          /* (h, index, name, *namelen, reserved, class, *classlen, *time) */
@@ -194,4 +238,35 @@ IMPL(advapi32, RegQueryInfoKeyA)                       /* (h, class, *classlen, 
     if (ARG(2)) rt_w32(G_MEM, ARG(2), 0);
     if (ARG(11)) { rt_w32(G_MEM, ARG(11), 0); rt_w32(G_MEM, ARG(11) + 4, 0); }
     RET(0, 12);
+}
+
+/* ---- (added for Diablo II) ---- */
+IMPL(advapi32, RegFlushKey) { pthread_mutex_lock(&rlock); reg_save(); pthread_mutex_unlock(&rlock); RET(0, 1); }
+static uint32_t open_key3(Ctx *c, int create)          /* RegOpenKeyA / RegCreateKeyA (h, sub, *out) */
+{
+    char p[1024]; uint32_t out = ARG(2);
+    reg_seed();
+    pthread_mutex_lock(&rlock);
+    RKey *k = full_path(ARG(0), ARG(1) ? GS(ARG(1)) : "", p, sizeof p) ? 0 : lookup(p, create);
+    uint32_t h = k ? new_handle(k) : 0;
+    pthread_mutex_unlock(&rlock);
+    if (!k) { if (getenv("W32_REGLOG")) fprintf(stderr, "w32: registry key %s not found\n", p); return 2; }
+    rt_w32(G_MEM, out, h); return 0;
+}
+IMPL(advapi32, RegOpenKeyA) { RET(open_key3(c, 0), 3); }
+IMPL(advapi32, RegCreateKeyA) { RET(open_key3(c, 1), 3); }
+IMPL(advapi32, RegEnumValueA)                          /* (h, index, name, *namelen, reserved, *type, data, *datalen) */
+{
+    RKey *k = key_of(ARG(0)); uint32_t idx = ARG(1), name = ARG(2), lenp = ARG(3), type = ARG(5), data = ARG(6), dlen = ARG(7);
+    if (!k) RET(6, 8);
+    pthread_mutex_lock(&rlock);
+    if (idx >= (uint32_t)k->nv) { pthread_mutex_unlock(&rlock); RET(259, 8); }   /* ERROR_NO_MORE_ITEMS */
+    RVal *v = &k->v[idx]; uint32_t l = (uint32_t)strlen(v->name);
+    if (rt_r32(G_MEM, lenp) <= l) { pthread_mutex_unlock(&rlock); RET(234, 8); }
+    memcpy(GP(name), v->name, l + 1); rt_w32(G_MEM, lenp, l);
+    if (type) rt_w32(G_MEM, type, v->type);
+    if (data) { if (!dlen || rt_r32(G_MEM, dlen) < v->size) { if (dlen) rt_w32(G_MEM, dlen, v->size); pthread_mutex_unlock(&rlock); RET(234, 8); }
+                memcpy(GP(data), v->data, v->size); }
+    if (dlen) rt_w32(G_MEM, dlen, v->size);
+    pthread_mutex_unlock(&rlock); RET(0, 8);
 }

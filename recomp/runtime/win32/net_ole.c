@@ -51,7 +51,8 @@ IMPL(wsock32, ord52)
             freeifaddrs(ifs);
         }
         if (!n) addrs[n++] = htonl(INADDR_LOOPBACK);
-        uint32_t portmap_public_ip(void); uint32_t pub = getenv("DS_NO_PORTMAP") ? 0 : portmap_public_ip();   /* for internet players */
+        uint32_t portmap_public_ip(void);   /* the router's public address too: only when asked (W32_PORTMAP=1, internet games) */
+        uint32_t pub = getenv("W32_PORTMAP") && !getenv("DS_NO_PORTMAP") ? portmap_public_ip() : 0;
         int dup = 0; for (int i = 0; i < n; i++) if (addrs[i] == pub) dup = 1;
         /* the LAN addresses first: the game gives the first one out in its LAN lobby's discovery packets and connects
          * to its own lobby server there (the router's public address, first before, was unreachable from the LAN) */

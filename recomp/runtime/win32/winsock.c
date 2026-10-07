@@ -1,6 +1,6 @@
 /* Winsock 1.1 (WSOCK32 by ordinal) on BSD sockets: the TCP and UDP sockets Dungeon Siege II's network layer opens for
  * LAN and direct-IP games. SOCKETs are small handles into a table of host descriptors; fd_sets, sockaddrs, option
- * levels and error codes are translated. (Router port forwarding is separate: portmap.c, off with DS_NO_PORTMAP=1.) */
+ * levels and error codes are translated. (Router port forwarding is separate: portmap.c, on with W32_PORTMAP=1.) */
 #include "w32.h"
 #include <arpa/inet.h>
 #include <errno.h>

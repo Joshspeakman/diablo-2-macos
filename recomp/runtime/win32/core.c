@@ -338,6 +338,13 @@ IMPL(kernel32, OpenMutexA)
     for (int k = 0; k < nnamed; k++) if (!strcmp(named[k]->name, GS(name))) { htab[(named_h[k] - 0x100) / 4].refs++; RET(named_h[k], 3); }
     w32_set_last_error(c, 2); RET(0, 3);
 }
+IMPL(kernel32, OpenEventA)                             /* (access, inherit, name): an event made with CreateEventA(name) */
+{
+    uint32_t name = ARG(2);
+    if (name) for (int k = 0; k < nnamed; k++) if (!strcmp(named[k]->name, GS(name)) && htab[(named_h[k] - 0x100) / 4].type == H_EVENT) {
+        htab[(named_h[k] - 0x100) / 4].refs++; RET(named_h[k], 3); }
+    w32_set_last_error(c, 2); RET(0, 3);
+}
 IMPL(kernel32, SetEvent)
 {
     HObj *o = h_get(ARG(0), H_EVENT); if (!o) RET(0, 1);
@@ -489,6 +496,7 @@ IMPL(shfolder, SHGetFolderPathA)
     uint32_t csidl = ARG(1) & 0xff, create = ARG(1) & 0x8000, out = ARG(4); const char *p;
     switch (csidl) {
     case 0x05: p = "C:\\Users\\player\\Documents"; break;                    /* CSIDL_PERSONAL */
+    case 0x28: p = "C:\\Users\\player"; break;                                /* CSIDL_PROFILE (Diablo II: <profile>\\Saved Games) */
     case 0x1a: p = "C:\\Users\\player\\AppData\\Roaming"; break;           /* CSIDL_APPDATA */
     case 0x1c: p = "C:\\Users\\player\\AppData\\Local"; break;             /* CSIDL_LOCAL_APPDATA */
     case 0x23: p = "C:\\ProgramData"; break;                                  /* CSIDL_COMMON_APPDATA */

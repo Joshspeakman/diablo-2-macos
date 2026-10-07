@@ -133,13 +133,10 @@ IMPL(user32, RegisterClassExA)                         /* WNDCLASSEXA = cbSize, 
 
 /* ---- gdi32: not reached yet (logged, so the first use shows which is needed) ---- */
 #define TODO_BODY(what, n, v) { static int once; if (!once++) fprintf(stderr, "w32: %s is not implemented yet\n", what); RET(v, n); }
-IMPL(gdi32, BitBlt) TODO_BODY("gdi32!BitBlt", 9, 0)
-IMPL(gdi32, CreateDIBSection) TODO_BODY("gdi32!CreateDIBSection", 6, 0)
 IMPL(gdi32, GetCharABCWidthsW) TODO_BODY("gdi32!GetCharABCWidthsW", 4, 0)
 IMPL(gdi32, GetCharWidth32A) TODO_BODY("gdi32!GetCharWidth32A", 4, 0)
 IMPL(gdi32, SetPixel) TODO_BODY("gdi32!SetPixel", 4, 0)
 IMPL(gdi32, SetStretchBltMode) TODO_BODY("gdi32!SetStretchBltMode", 2, 0)
-IMPL(gdi32, StretchBlt) TODO_BODY("gdi32!StretchBlt", 11, 0)
 IMPL(gdi32, GetGlyphOutlineW) { static int once; if (!once++) fprintf(stderr, "w32: gdi32!GetGlyphOutlineW is not implemented yet\n"); RET(0xffffffffu, 7); }   /* GDI_ERROR */
 
 /* ---- ole32 / oleaut32 ---- */
