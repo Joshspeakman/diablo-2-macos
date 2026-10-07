@@ -119,10 +119,97 @@ def adpcm_decompress(data, channels):
 # NOTE: Blizzard's ADPCM uses the low six bits of a sample byte as the magnitude bits (shifted per bit) and bit 6 as the
 # sign; the per-bit shifts above follow StormLib's DecompressADPCM (step >> 0 .. >> 5 for bits 0..5, plus step >> shift).
 
-# ---- Huffman (Blizzard's adaptive tree, as in StormLib) ----
-_HUFF_WEIGHTS = None   # Huffman-compressed sectors are rare in Diablo II (only together with ADPCM in some WAVs)
-def huffman_decompress(data):
-    raise NotImplementedError('Huffman (0x01) compression')
+# ---- Huffman (Blizzard's adaptive Huffman, used together with ADPCM for WAV sound) ----
+# The nine weight tables (one per compression type, 0x102 bytes each) are constants of Storm; the game's own copy is
+# read from Game.exe (set_huffman_tables). The tree: a doubly linked list of items sorted by weight (highest first),
+# where the two children of a node are neighbours in the list (child_hi = child_lo.prev).
+_HUFF_TABLES = None
+def set_huffman_tables(blob):
+    global _HUFF_TABLES
+    _HUFF_TABLES = [blob[0x102 * k:0x102 * (k + 1)] for k in range(9)]
+def huffman_tables_from_exe(exe_path, va=0x6cf3a0):
+    """Diablo II 1.14d Game.exe keeps Storm's tables at 0x6cf3a0."""
+    sys.path.insert(0, __import__('os').path.join(__import__('os').path.dirname(__file__), '..', 'tools'))
+    from pe import PE
+    set_huffman_tables(PE(exe_path).bytes_at(va, 9 * 0x102))
+
+class _Item:
+    __slots__ = ('prev', 'next', 'value', 'weight', 'parent', 'lo')
+    def __init__(self, value, weight): self.prev = self.next = self.parent = self.lo = None; self.value = value; self.weight = weight
+
+class _Huff:
+    def __init__(self, ctype):
+        self.head = _Item(-1, 0); self.head.prev = self.head.next = self.head    # the list's head (sentinel)
+        self.by_byte = [None] * 0x102
+        w = _HUFF_TABLES[ctype & 0x0F]; maxw = 0
+        for i in range(0x100):
+            if w[i]:
+                it = _Item(i, w[i]); self.by_byte[i] = it; self._insert_after(it, self.head)
+                if w[i] >= maxw: maxw = w[i]
+                else: self._move_after(it, self._higher_or_equal(self.head.prev, w[i]))
+        for v in (0x100, 0x101):
+            it = _Item(v, 1); self.by_byte[v] = it; self._insert_after(it, self.head.prev)
+        lo = self.head.prev
+        while lo is not self.head:
+            hi = lo.prev
+            if hi is self.head: break
+            parent = _Item(0, hi.weight + lo.weight); parent.lo = lo; lo.parent = hi.parent = parent
+            self._insert_after(parent, self._higher_or_equal(self.head.prev, parent.weight))
+            lo = hi.prev
+    # list helpers
+    def _remove(self, it): it.prev.next = it.next; it.next.prev = it.prev
+    def _insert_after(self, it, where): it.prev = where; it.next = where.next; where.next.prev = it; where.next = it
+    def _move_after(self, it, where): self._remove(it); self._insert_after(it, where)
+    def _higher_or_equal(self, it, weight):
+        while it is not self.head:
+            if it.weight >= weight: return it
+            it = it.prev
+        return self.head
+    def decode(self, bits):
+        it = self.head.next                            # the root: the heaviest item
+        while it.lo is not None:
+            it = it.lo.prev if bits.get(1) else it.lo
+        return it.value
+    def inc_weights(self, it):
+        while it is not None:
+            it.weight += 1
+            higher = self._higher_or_equal(it.prev, it.weight); other = higher.next
+            if other is not it:                        # swap it with the first item of its old weight
+                self._move_after(other, it); self._move_after(it, higher)
+                if other.parent.lo is other: other.parent.lo = it
+                if it.parent.lo is it: it.parent.lo = other
+                it.parent, other.parent = other.parent, it.parent
+            it = it.parent
+    def new_branch(self, value):
+        """0x101 (a byte not in the tree): the lightest item splits into itself and the new byte (weight 0)"""
+        last = self.head.prev
+        hi = _Item(last.value, last.weight); hi.parent = last; self.by_byte[last.value] = hi
+        lo = _Item(value, 0); lo.parent = last; self.by_byte[value] = lo
+        self._insert_after(hi, self.head.prev); self._insert_after(lo, self.head.prev)
+        last.lo = lo
+        self.inc_weights(lo)
+
+class _LsbBits:
+    def __init__(self, d): self.d, self.pos, self.buf, self.n = d, 0, 0, 0
+    def get(self, k):
+        while self.n < k:
+            b = self.d[self.pos] if self.pos < len(self.d) else 0
+            self.buf |= b << self.n; self.pos += 1; self.n += 8
+        v = self.buf & ((1 << k) - 1); self.buf >>= k; self.n -= k; return v
+
+def huffman_decompress(data, out_size):
+    if _HUFF_TABLES is None: raise NotImplementedError('Huffman (0x01): call huffman_tables_from_exe(Game.exe) first')
+    bits = _LsbBits(data); ctype = bits.get(8); h = _Huff(ctype); cmp0 = ctype == 0
+    out = bytearray()
+    while len(out) < out_size:
+        v = h.decode(bits)
+        if v == 0x100: break
+        if v == 0x101:
+            v = bits.get(8); h.new_branch(v)
+            if not cmp0: h.inc_weights(h.by_byte[v])
+        out.append(v)
+        if cmp0: h.inc_weights(h.by_byte[v])
+    return bytes(out)
 
 def decompress(data, out_size):
     if len(data) == out_size: return data
@@ -130,7 +217,7 @@ def decompress(data, out_size):
     if method & 0x10: body = bz2.decompress(body); method &= ~0x10
     if method & 0x08: body = explode(body, out_size); method &= ~0x08
     if method & 0x02: body = zlib.decompress(body); method &= ~0x02
-    if method & 0x01: body = huffman_decompress(body); method &= ~0x01
+    if method & 0x01: body = huffman_decompress(body, out_size * 2); method &= ~0x01
     if method & 0x80: body = adpcm_decompress(body, 2); method &= ~0x80
     if method & 0x40: body = adpcm_decompress(body, 1); method &= ~0x40
     if method: raise NotImplementedError('compression %#x' % method)
@@ -199,6 +286,9 @@ class MPQ:
         return [n for n in lst if self.find(n)]
 
 if __name__ == '__main__':
+    import os
+    exe = os.path.join(os.path.dirname(os.path.abspath(sys.argv[1])), 'Game.exe')
+    if os.path.exists(exe): huffman_tables_from_exe(exe)
     m = MPQ(sys.argv[1])
     if sys.argv[2] == 'list':
         for n in m.names(): print(n)

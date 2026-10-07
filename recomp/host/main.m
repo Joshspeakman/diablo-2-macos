@@ -68,8 +68,19 @@ static void *render_thread(void *arg)
                     __atomic_store_n(&H->read_pos, rpos, __ATOMIC_RELEASE);
                     if (!present) continue;
                     uint32_t w, h; dsr_renderer_presented_size(r, &w, &h);
-                    if (w && h && (layer.drawableSize.width != w || layer.drawableSize.height != h)) {
-                        [CATransaction begin]; [CATransaction setDisableActions:YES]; layer.drawableSize = CGSizeMake(w, h); [CATransaction commit];
+                    if (w && h) {
+                        /* the drawable: the window's own pixels at the picture's aspect ratio, so the present shader does
+                         * the scaling with the chosen filter (DSR_FILTER; DSR_FILTER=layer: the picture's size, scaled by
+                         * Core Animation as before) */
+                        static int layer_scaling = -1; if (layer_scaling < 0) layer_scaling = getenv("DSR_FILTER") && !strcmp(getenv("DSR_FILTER"), "layer");
+                        CGSize b = layer.bounds.size; double sc = layer.contentsScale > 0 ? layer.contentsScale : 1;
+                        double vw = b.width * sc, vh = b.height * sc, k = fmin(vw / w, vh / h);
+                        uint32_t dw = w, dh = h;
+                        if (!layer_scaling && vw >= 1 && vh >= 1 && k > 0) { dw = (uint32_t)lround(w * k); dh = (uint32_t)lround(h * k); }
+                        if (dw > 8192) dw = 8192; if (dh > 8192) dh = 8192;
+                        if (layer.drawableSize.width != dw || layer.drawableSize.height != dh) {
+                            [CATransaction begin]; [CATransaction setDisableActions:YES]; layer.drawableSize = CGSizeMake(dw, dh); [CATransaction commit];
+                        }
                     }
                     uint32_t fno = ++frames;
                     if (test_mode) {   // one line per second: frames presented, the mode, GPU time per frame and frame-time spikes
@@ -113,6 +124,13 @@ static void *render_thread(void *arg)
                                 [[rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:[NSString stringWithUTF8String:shot_path] atomically:YES];
                                 CGImageRelease(img); CGContextRelease(cg); CGColorSpaceRelease(cs); free(px);
                                 fprintf(stderr, "Diablo2Native: frame %u saved to %s\n", fno, shot_path);
+                                {   /* the 8-bit picture's palette beside it (<shot>.pal: 256 lines of RRGGBB), for the tests */
+                                    int dsr_frame_palette_get(uint32_t out[256]); uint32_t pal[256];
+                                    if (dsr_frame_palette_get(pal)) {
+                                        char pp[1100]; snprintf(pp, sizeof pp, "%s.pal", shot_path); FILE *pf = fopen(pp, "w");
+                                        if (pf) { for (int k = 0; k < 256; k++) fprintf(pf, "%06x\n", pal[k]); fclose(pf); }
+                                    }
+                                }
                             } else if (tex) fprintf(stderr, "Diablo2Native: screenshot: unexpected pixel format %lu\n", (unsigned long)tex.pixelFormat);
                         }
                     }
@@ -661,6 +679,7 @@ int main(int argc, char **argv)
 
         layer = [CAMetalLayer layer]; layer.device = MTLCreateSystemDefaultDevice(); layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
         layer.framebufferOnly = YES; layer.opaque = YES; layer.contentsGravity = kCAGravityResizeAspect; layer.maximumDrawableCount = 3;
+        layer.contentsScale = NSScreen.mainScreen.backingScaleFactor;   /* drawables sized in the screen's pixels (see the present loop) */
         layer.displaySyncEnabled = getenv("DSR_VSYNC") ? atoi(getenv("DSR_VSYNC")) != 0 : YES;
         layer.backgroundColor = CGColorGetConstantColor(kCGColorBlack);
 

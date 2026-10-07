@@ -471,6 +471,8 @@ class Lifter:
         o = i.operands; pc = i.address
         if mn == 'imul' and len(o) >= 2:
             s1 = self.rd(i, o[1] if len(o) == 2 else o[1]); s2 = self.rd(i, o[0]) if len(o) == 2 else self.rd(i, o[2], o[0].size)
+            if o[0].size == 2:                                   # 16-bit: the low word of the product; CF/OF when it doesn't fit
+                return '{ int32_t p = (int32_t)(int16_t)%s * (int32_t)(int16_t)%s; uint32_t r = (uint32_t)p & 0xffffu; %s flags_set(&f, (p != (int16_t)p) ? (F_CF | F_OF) : 0, F_CF | F_OF); }' % (s1, s2, self.wr(i, o[0], 'r'))
             if o[0].size != 4: raise Unsupported('imul16')
             return '{ int64_t p = (int64_t)(int32_t)%s * (int64_t)(int32_t)%s; uint32_t r = (uint32_t)p; %s flags_set(&f, (p != (int64_t)(int32_t)r) ? (F_CF | F_OF) : 0, F_CF | F_OF); }' % (s1, s2, self.wr(i, o[0], 'r'))
         s = o[0]; sz = s.size; v = self.rd(i, s)
@@ -490,6 +492,14 @@ class Lifter:
             if mn == 'div':
                 return '{ uint32_t n = eax & 0xffffu, d = %s; if (!d || n / d > 0xff) { SPILL; rt_div_fault(c, 0x%08xu); } eax = (eax & 0xffff0000u) | ((n %% d) << 8) | (n / d); }' % (v, pc)
             return '{ int32_t n = (int16_t)eax, d = (int8_t)%s; if (!d || n / d != (int8_t)(n / d)) { SPILL; rt_div_fault(c, 0x%08xu); } eax = (eax & 0xffff0000u) | (((uint32_t)(n %% d) & 0xffu) << 8) | ((uint32_t)(n / d) & 0xffu); }' % (v, pc)
+        if sz == 2:                                              # dx:ax
+            if mn == 'mul':
+                return '{ uint32_t p = (eax & 0xffffu) * %s; eax = (eax & 0xffff0000u) | (p & 0xffffu); edx = (edx & 0xffff0000u) | (p >> 16); flags_set(&f, (p >> 16) ? (F_CF | F_OF) : 0, F_CF | F_OF); }' % v
+            if mn == 'imul':
+                return '{ int32_t p = (int32_t)(int16_t)eax * (int16_t)%s; eax = (eax & 0xffff0000u) | ((uint32_t)p & 0xffffu); edx = (edx & 0xffff0000u) | ((uint32_t)p >> 16); flags_set(&f, (p != (int16_t)p) ? (F_CF | F_OF) : 0, F_CF | F_OF); }' % v
+            if mn == 'div':
+                return '{ uint32_t n = ((edx & 0xffffu) << 16) | (eax & 0xffffu), d = %s; if (!d || n / d > 0xffffu) { SPILL; rt_div_fault(c, 0x%08xu); } eax = (eax & 0xffff0000u) | (n / d); edx = (edx & 0xffff0000u) | (n %% d); }' % (v, pc)
+            return '{ int32_t n = (int32_t)(((edx & 0xffffu) << 16) | (eax & 0xffffu)), d = (int16_t)%s; if (!d || (n == INT32_MIN && d == -1) || n / d != (int16_t)(n / d)) { SPILL; rt_div_fault(c, 0x%08xu); } eax = (eax & 0xffff0000u) | ((uint32_t)(n / d) & 0xffffu); edx = (edx & 0xffff0000u) | ((uint32_t)(n %% d) & 0xffffu); }' % (v, pc)
         raise Unsupported('%s16' % mn)
 
     def cmpxchg8b(self, i):

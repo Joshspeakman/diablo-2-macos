@@ -294,7 +294,9 @@ IMPL(gdi32, CreateDIBSection)                          /* (dc, BITMAPINFO *, usa
 static void dib_to_bgra(const GObj *bm, int x, int y, int w, int h, uint32_t *dst)
 {
     uint32_t lut[256];
-    if (bm->dib_bpp == 8) { for (int k = 0; k < 256; k++) lut[k] = 0xff000000u | bm->ctab[k]; void dsr_frame_palette(const uint32_t *); dsr_frame_palette(lut); }
+    void dsr_frame_palette(const uint32_t *);
+    if (bm->dib_bpp == 8) { for (int k = 0; k < 256; k++) lut[k] = 0xff000000u | bm->ctab[k]; dsr_frame_palette(lut); }
+    else dsr_frame_palette(0);
     for (int r = 0; r < h; r++) {
         int sy = y + r, row = bm->dib_topdown ? sy : bm->bh - 1 - sy;
         const uint8_t *src = G_MEM + bm->dib + (uint32_t)row * bm->dib_pitch; uint32_t *o = dst + (size_t)r * (size_t)w;
