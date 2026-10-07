@@ -25,6 +25,8 @@ import argparse, glob, os, struct, subprocess, sys, time, wave, math
 HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE); sys.path.insert(0, os.path.join(ROOT, 'tools'))
 import png, mpq
+from d2game import *
+import d2game
 
 ap = argparse.ArgumentParser()
 ap.add_argument('--game', required=True); ap.add_argument('--app', default=os.path.join(ROOT, 'work/full/app/Diablo2Native'))
@@ -34,6 +36,7 @@ a = ap.parse_args()
 WORK = a.work or os.path.join('/tmp', 'd2-game-test-%d' % os.getpid())
 os.makedirs(WORK, exist_ok=True)
 ONLY = set(a.only.split(',')) if a.only else None
+d2game.CONFIG.update(app=a.app, exe=a.exe, game=a.game, work=WORK)
 results = []
 
 def stage(name):
@@ -41,83 +44,6 @@ def stage(name):
 def report(name, ok, detail):
     results.append((name, ok, detail)); print('%-7s %s  %s' % (name, 'ok  ' if ok else 'FAIL', detail), flush=True)
 
-class Game:
-    def __init__(self, name, env=None):
-        self.dir = os.path.join(WORK, name); os.makedirs(self.dir, exist_ok=True)
-        self.cmd = os.path.join(self.dir, 'cmd.txt'); open(self.cmd, 'w').close(); open(os.path.join(self.dir, 'peek.txt'), 'w').close()
-        self.log = os.path.join(self.dir, 'run.log'); self.wav = os.path.join(self.dir, 'mix.wav'); self.shots = 0
-        e = dict(os.environ, DS_TEST='1', W32_AUDIO_MUTE='1', DS_CMDFILE=self.cmd, DS_PEEKFILE=os.path.join(self.dir, 'peek.txt'),
-                 W32_AUDIO_DUMP=self.wav, DS_ARGS='')
-        e.update(env or {})
-        self.p = subprocess.Popen([a.app, '--exe', a.exe, '--game', a.game, '--data', self.dir], stdout=open(self.log, 'w'),
-                                  stderr=subprocess.STDOUT, env=e)
-        self.t0 = time.time()
-    def send(self, line, wait=1.0):
-        with open(self.cmd, 'a') as f: f.write(line + '\n')
-        time.sleep(wait)
-    def shot(self, name):
-        path = os.path.join(self.dir, name + '.png')
-        if os.path.exists(path): os.remove(path)
-        self.send('shot:' + path, 0)
-        for _ in range(80):
-            if os.path.exists(path) and os.path.getsize(path) > 0: time.sleep(0.2); return path
-            if self.p.poll() is not None: raise RuntimeError('the game ended: ' + open(self.log).read()[-400:])
-            time.sleep(0.1)
-        raise RuntimeError('no screenshot ' + name)
-    def stop(self):
-        if self.p.poll() is None: self.p.terminate()
-        try: self.p.wait(10)
-        except subprocess.TimeoutExpired: self.p.kill()
-    def alive(self): return self.p.poll() is None
-
-def palette_exact(path):
-    """the fraction of the screenshot's pixels that are one of the 256 colours of the frame's palette (<shot>.pal)"""
-    pal = os.path.splitext(path)[0] + '.png.pal'
-    if not os.path.exists(pal): pal = path + '.pal'
-    if not os.path.exists(pal): return None
-    colours = {int(l, 16) for l in open(pal).read().split()}
-    w, h, rows = png.load(path); good = 0
-    for r in rows:
-        for p in r:
-            if (p[0] << 16 | p[1] << 8 | p[2]) in colours: good += 1
-    return good / (w * h)
-def hud(path):
-    w, h, rows = png.load(path)
-    life, mana = png.mean(rows, 40, 520, 110, 590), png.mean(rows, 700, 520, 770, 590)
-    return life[0] > 2 * (life[1] + life[2]) / 2 + 30 and mana[2] > 2 * (mana[0] + mana[1]) / 2 + 30, life, mana
-def brightness(path, box=None):
-    w, h, rows = png.load(path); m = png.mean(rows, *(box or (0, 0, w, h))); return sum(m) / 3
-def lit_fraction(path):
-    """the share of pixels that are not near black"""
-    w, h, rows = png.load(path); n = 0
-    for r in rows[::2]:
-        for p in r[::2]:
-            if max(p) > 40: n += 1
-    return n / ((h + 1) // 2 * ((w + 1) // 2))
-def gold_fraction(path, box):
-    w, h, rows = png.load(path); n = g = 0
-    for y in range(box[1], box[3]):
-        for x in range(box[0], box[2]):
-            p = rows[y][x]; n += 1
-            if p[0] > 140 and p[1] > 110 and p[2] < 120 and p[0] > p[2] + 50: g += 1
-    return g / max(n, 1)
-def differs(p1, p2):
-    w, h, r1 = png.load(p1); _, _, r2 = png.load(p2); d = 0
-    for y in range(0, h - 100, 4):
-        for x in range(0, w, 4):
-            if sum(abs(r1[y][x][k] - r2[y][x][k]) for k in range(3)) > 60: d += 1
-    return d / ((h - 100) // 4 * w // 4)
-def log_sizes(game):
-    return {l.split('(')[1].split(')')[0] for l in open(game.log) if ': frame ' in l and ' fps' in l}
-def wav_rms(path, t0, t1):
-    w = wave.open(path); r = w.getframerate(); w.setpos(int(t0 * r)); n = int((t1 - t0) * r)
-    d = w.readframes(n); x = struct.unpack('<%dh' % (len(d) // 2), d)
-    return math.sqrt(sum(v * v for v in x) / max(len(x), 1)) if x else 0
-
-def to_hero_select(g):
-    """clicks past the intro videos, the title and the main menu (Single Player) to the hero selection"""
-    time.sleep(max(0.5, 5 - (time.time() - g.t0)))
-    for _ in range(5): g.send('click:400,300', 3)
 
 try:
     # ---------------- a new character, end to end ----------------
