@@ -44,6 +44,7 @@ static uint32_t base_of(uint32_t h)                     /* a module handle (its 
 {
     if (!h || h == w32_image_base) return w32_image_base;
     for (unsigned k = 1; k < rt_images_n; k++) if (h == rt_images[k].base) return h;
+    int w32_is_data_module(uint32_t); if (w32_is_data_module(h & ~3u)) return h & ~3u;   /* a data file (LOAD_LIBRARY_AS_DATAFILE) */
     return 0;
 }
 IMPL(kernel32, FindResourceA) { uint32_t b = base_of(ARG(0)); RET(b ? find_resource(b, ARG(2), ARG(1), 0x409) : 0, 3); }

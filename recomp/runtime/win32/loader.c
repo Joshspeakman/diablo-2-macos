@@ -379,3 +379,36 @@ uint32_t w32_load_library(Ctx *c, const char *name)
 }
 uint32_t w32_image_module(const char *name) { int k = image_index(name); return k > 0 && image_ref[k] ? rt_images[k].base : 0; }
 const char *w32_image_name(uint32_t base) { for (unsigned k = 1; k < rt_images_n; k++) if (rt_images[k].base == base && image_ref[k]) return rt_images[k].name; return 0; }
+
+/* ---- data-file modules: a PE file mapped for its resources only (LoadLibraryEx with LOAD_LIBRARY_AS_DATAFILE, e.g.
+ * Diablo II's language file D2.LNG, a resource-only DLL). Mapped section by section like an image, so resource
+ * addresses (RVAs) work as they do for the game; its code, if any, is never run. ---- */
+static struct { uint32_t base; char name[64]; } datamods[16]; static int ndatamods;
+int w32_is_data_module(uint32_t base) { for (int k = 0; k < ndatamods; k++) if (datamods[k].base == base) return 1; return 0; }
+uint32_t w32_load_datafile(const char *win)
+{
+    const char *bn = strrchr(win, '\\'), *b2 = strrchr(win, '/'); if (b2 > bn) bn = b2; bn = bn ? bn + 1 : win;
+    for (int k = 0; k < ndatamods; k++) if (!strcasecmp(datamods[k].name, bn)) return datamods[k].base;
+    char host[2048]; if (w32_host_path(win, host, sizeof host, 0)) return 0;
+    FILE *f = fopen(host, "rb"); if (!f) return 0;
+    fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET);
+    if (n < 0x200 || n > (64 << 20)) { fclose(f); return 0; }
+    uint8_t *d = malloc((size_t)n); if (fread(d, 1, (size_t)n, f) != (size_t)n) { fclose(f); free(d); return 0; } fclose(f);
+    uint32_t pe = *(uint32_t *)(d + 0x3c);
+    if (d[0] != 'M' || d[1] != 'Z' || pe + 0xf8 > (uint32_t)n || memcmp(d + pe, "PE\0\0", 4) || ndatamods == 16) { free(d); return 0; }
+    uint32_t opt = pe + 24, size = *(uint32_t *)(d + opt + 56), hdr = *(uint32_t *)(d + opt + 60);
+    uint16_t nsec = *(uint16_t *)(d + pe + 6), optsz = *(uint16_t *)(d + pe + 20);
+    uint32_t base = vm_alloc(0, (size + 0xffff) & ~0xffffu, 0x3000, 4);
+    if (!base) { free(d); return 0; }
+    memcpy(G_MEM + base, d, hdr < (uint32_t)n ? hdr : (uint32_t)n);
+    for (int s = 0; s < nsec; s++) {
+        uint8_t *h = d + opt + optsz + 40 * s;
+        uint32_t va = *(uint32_t *)(h + 12), vs = *(uint32_t *)(h + 8), rs = *(uint32_t *)(h + 16), ra = *(uint32_t *)(h + 20);
+        uint32_t len = rs < vs || !vs ? rs : vs;
+        if (va + len <= size && ra + len <= (uint32_t)n) memcpy(G_MEM + base + va, d + ra, len);
+    }
+    free(d);
+    datamods[ndatamods].base = base; snprintf(datamods[ndatamods].name, sizeof datamods[ndatamods].name, "%s", bn); ndatamods++;
+    if (getenv("W32_LIBLOG")) fprintf(stderr, "w32: %s mapped as data at %08x\n", win, base);
+    return base;
+}

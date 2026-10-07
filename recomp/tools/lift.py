@@ -25,6 +25,7 @@ CC = {'o': 'CC_O', 'no': 'CC_NO', 'b': 'CC_B', 'ae': 'CC_AE', 'e': 'CC_E', 'ne':
 # Points where the native build adds behaviour (runtime/win32/hooks.c). Each is an instruction boundary; the hook sees
 # the registers and memory as the original code would, and does nothing unless its feature is turned on.
 HOOKS = {                 # address: description (runtime/win32/hooks.c rt_hook)
+    0x004065af: 'start-up: the video renderer the player chose (D2_RENDERER)',
 }
 JUNK = {'in', 'out', 'insb', 'insd', 'insw', 'outsb', 'outsd', 'outsw', 'iretd', 'hlt', 'cli', 'sti', 'int1', 'into',
         'int', 'aaa', 'aas', 'aam', 'aad', 'daa', 'das', 'salc', 'les', 'lds', 'retf', 'ljmp', 'lcall', 'arpl', 'bound',
