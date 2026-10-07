@@ -28,6 +28,7 @@ struct VIn {
 };
 struct VOut {
     float4 pos [[position]];
+    float psize [[point_size]];      // point lists: one pixel, as Direct3D draws them (Metal leaves the size undefined otherwise)
     float4 diffuse;
     float2 uv;                       // stage 0 coordinates (after its texture transform)
     float2 uv1;                      // stage 1 coordinates
@@ -48,7 +49,7 @@ static float2 ttf(float2 uv, float4x4 m, int tci, int flags)
 }
 vertex VOut vs_main(VIn in [[stage_in]], constant Uniforms &u [[buffer(1)]])
 {
-    VOut o;
+    VOut o; o.psize = 1.0;
     if (u.misc.x) {          // XYZRHW: already in screen space
         float w = in.pos.w != 0 ? 1.0 / in.pos.w : 1.0;
         float x = (in.pos.x + 0.5 - u.vp.x) / u.vp.z * 2.0 - 1.0;   // +0.5: D3D samples pixel centres at integers

@@ -13,10 +13,11 @@ this repository: the build regenerates everything locally from your copy, and th
 - TCP/IP games (Other Multiplayer → TCP/IP): host on this Mac, join from another, play together;
 - the game's own DirectDraw renderer (default) or its windowed mode, both drawing the original 8-bit pictures, shown
   with a choice of scaling filters (sharp pixels, smooth, nearest, CRT scanlines);
+- the game's Direct3D renderer on Metal, with both of its views: Isometric (the classic flat view) and Perspective (the
+  ground tilting away toward the horizon);
 - sound through DirectSound on Core Audio: music, effects, speech.
 
-Battle.net and Open Battle.net are untested. 1.14d's Direct3D mode is not provided (its DirectDraw mode is chosen
-instead, see below). What's next: [docs/PLAN.md](docs/PLAN.md).
+Battle.net and Open Battle.net are untested. What's next: [docs/PLAN.md](docs/PLAN.md).
 
 ## Install
 
@@ -41,7 +42,8 @@ has:
 
 | Setting | Choices |
 |---|---|
-| Video | **DirectDraw** (the classic renderer, plays the cinematics) · Windowed Mode (the game's `-w` renderer; no cinematics) |
+| Video | **DirectDraw** (the classic renderer, plays the cinematics) · Direct3D (the game's 3D renderer) · Windowed Mode (the game's `-w` renderer; no cinematics) |
+| Direct3D → View | **Game's Choice** (as last set in the game's Options → Video → Perspective) · Isometric · Perspective |
 | Display → Scaling | **Sharp** (square pixels, smoothed only at their edges) · Smooth (bilinear) · Pixel (nearest) · CRT (sharp with scanlines) |
 | Display → Notch | Hide the Notch (the picture below the camera) · Around the Notch |
 | Updates | rebuilds the app from the newest commit of its branch, from your own copy |
@@ -69,6 +71,8 @@ recomp/tests/run_tests.sh "/path/to/Diablo II"   # and the game end to end (afte
     measured) at the same offset in several windows (right speed, no drift);
   - *walk, save, load*: a click moves the character; Save and Exit writes a valid `.d2s`; Single Player lists it and
     loads it back into the game;
+  - *d3d*: the Direct3D renderer: a new character is made and saved, then loaded in the Isometric and the Perspective
+    view; the HUD is drawn in each, the game keeps the view chosen, and the same place looks different in the two;
   - *tcpip*: two instances, one hosting and one joining by this Mac's LAN address, both in Act 1.
 - **Coverage** (`coverage_test.py`, about an hour; run it on its own): a character of every class is made through the
   menus, given every class skill (`tests/d2s.py` edits these scratch characters only), leaves town by its waypoint and
@@ -93,9 +97,14 @@ uses (615 functions: kernel32, user32, gdi32, advapi32, DirectDraw, DirectSound,
 Notes on Diablo II:
 
 - 1.14d always runs Direct3D when not windowed. A start-up hook (`tools/lift.py` HOOKS, `runtime/win32/hooks.c`) picks
-  among the game's own renderers instead (`D2_RENDERER`): its DirectDraw renderer (default) or its windowed GDI mode.
-  Both draw 8-bit pictures in software; `runtime/win32/ddraw_pal.c` (palettized DirectDraw 1-7) and the DIB sections
-  in `gdi32.c` turn them into BGRA pictures for the renderer.
+  among the game's own renderers instead (`D2_RENDERER`): its DirectDraw renderer (default), its windowed GDI mode, or
+  its Direct3D renderer. The first two draw 8-bit pictures in software; `runtime/win32/ddraw_pal.c` (palettized
+  DirectDraw 1-7) and the DIB sections in `gdi32.c` turn them into BGRA pictures for the renderer.
+- The Direct3D renderer is DirectX 6 (`IDirectDraw4` with `IDirect3D3`, `IDirect3DDevice3`, viewports, textures,
+  vertex buffers). The game projects the scene itself, isometric or in perspective, and draws pre-transformed textured
+  triangles; `ddraw_pal.c` turns its textures (16-bit, colour keys) into GPU textures and its draws, states and
+  DirectX 5-style texture blending into the Metal renderer's commands. The view is the game's `Perspective` registry
+  value, which the launch window can set at each start (`D2_PERSPECTIVE=on|off`).
 - The game's language file `D2.LNG` is loaded as a resource-only module; characters are kept where 1.14d keeps them on
   Windows (`SHGetKnownFolderPath` Saved Games); settings the game keeps in the registry persist in
   `<data>/registry.txt`.
@@ -110,7 +119,8 @@ recomp/tools/build_app.sh recomp/work/full           # link the app executable
 recomp/run.sh "/path/to/Diablo II"                    # play from the build (data in ~/Games/Diablo2Native)
 ```
 
-Environment for development: `DS_TEST=1` (background window, no launch window), `D2_RENDERER=ddraw|gdi`,
+Environment for development: `DS_TEST=1` (background window, no launch window), `D2_RENDERER=ddraw|gdi|d3d`,
+`D2_PERSPECTIVE=on|off`, `W32_REGLOG=1`,
 `DSR_FILTER=sharp|smooth|pixel|crt`, `W32_DDLOG=1`, `W32_NETLOG=1`, `W32_SEHLOG=1`, `W32_TRACE=<file>`,
 `W32_AUDIO_DUMP=<file.wav>`, `DS_CMDFILE=<file>` (scripted clicks, keys, typing and screenshots).
 

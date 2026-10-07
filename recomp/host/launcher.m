@@ -64,8 +64,8 @@ enum { BANNER_H = 252, TOP_Y = 270 };
 - (NSRect)valueRect:(NSInteger)k { NSRect r = [self rowRect:k]; return NSMakeRect(NSMaxX(r) - 300, r.origin.y + 9, 262, 30); }
 - (NSRect)sectionRect:(NSInteger)i
 {
-    NSInteger n = (NSInteger)self.sections.count, per = 2, line = i / per, inLine = MIN(per, n - line * per), col = i % per;
-    CGFloat w = 290, g = 28, x0 = (self.bounds.size.width - (inLine * w + (inLine - 1) * g)) / 2;
+    NSInteger n = (NSInteger)self.sections.count, per = n == 3 ? 3 : 2, line = i / per, inLine = MIN(per, n - line * per), col = i % per;
+    CGFloat w = per == 3 ? 220 : 290, g = per == 3 ? 20 : 28, x0 = (self.bounds.size.width - (inLine * w + (inLine - 1) * g)) / 2;
     return NSMakeRect(x0 + col * (w + g), TOP_Y + 74 * self.top.count + 44 + line * 100, w, 58);
 }
 - (NSRect)playRect { NSRect b = self.bounds; return NSMakeRect(NSMidX(b) + 12, b.size.height - 84, 220, 56); }
@@ -316,12 +316,21 @@ static NSArray<NSDictionary *> *notch_choices(void)
              @{@"value": @"around", @"label": @"Around the Notch", @"note": @"The picture on the whole display, the notch over its top"}];
 }
 /* The game's own renderers (D2_RENDERER, chosen at start-up by runtime/win32/hooks.c): its DirectDraw renderer, which
- * plays the cinematics, or its windowed mode. Both draw the same 8-bit pictures in software; 1.14d's Direct3D mode is
- * not offered. */
+ * plays the cinematics, its Direct3D renderer (on Metal: runtime/win32/ddraw_pal.c), which has the Perspective view,
+ * or its windowed mode. */
 static NSArray<NSDictionary *> *video_choices(void)
 {
     return @[@{@"value": @"ddraw", @"label": @"DirectDraw", @"note": @"The classic renderer, with the cinematics (recommended)"},
+             @{@"value": @"d3d", @"label": @"Direct3D", @"note": @"The game's 3D renderer: Isometric or Perspective view"},
              @{@"value": @"gdi", @"label": @"Windowed Mode", @"note": @"The game's -w mode: the same picture, no cinematics"}];
+}
+/* Direct3D's view (D2_PERSPECTIVE: the game's Options -> Video -> Perspective, kept in the registry): as last chosen in
+ * the game, or set at each start */
+static NSArray<NSDictionary *> *view_choices(void)
+{
+    return @[@{@"value": @"game", @"label": @"Game's Choice", @"note": @"The game's own setting, as it last saved it"},
+             @{@"value": @"off", @"label": @"Isometric", @"note": @"The classic view, without depth"},
+             @{@"value": @"on", @"label": @"Perspective", @"note": @"True 3D: the ground tilts away toward the horizon"}];
 }
 /* the picture scaled to the display by the renderer's present shader (DSR_FILTER) */
 static NSArray<NSDictionary *> *scaling_choices(void)
@@ -337,9 +346,11 @@ static NSInteger index_of(NSArray<NSDictionary *> *c, NSString *v, NSInteger dfl
     return dflt;
 }
 /* the chosen settings as environment for the runtime (read later at start-up) */
-static void apply(NSString *video, NSString *scaling, NSString *notch)
+static void apply(NSString *video, NSString *view, NSString *scaling, NSString *notch)
 {
     setenv("D2_RENDERER", video.UTF8String, 1);
+    if ([view isEqualToString:@"game"] || ![video isEqualToString:@"d3d"]) unsetenv("D2_PERSPECTIVE");   /* the game's setting left alone */
+    else setenv("D2_PERSPECTIVE", view.UTF8String, 1);
     setenv("DSR_FILTER", scaling.UTF8String, 1);
     setenv("DS_NOTCH", notch.UTF8String, 1);
 }
@@ -457,11 +468,12 @@ int ds_launcher_run(const char *game_dir, const char *data_dir)
     NSString *data = @(data_dir), *plistPath = [data stringByAppendingPathComponent:@"launcher.plist"];
     NSDictionary *saved = [NSDictionary dictionaryWithContentsOfFile:plistPath] ?: @{};
     DSRow *video = [DSRow new]; video.title = @"Video"; video.choices = video_choices(); video.index = index_of(video.choices, saved[@"video"], 0);
+    DSRow *view = [DSRow new]; view.title = @"View"; view.choices = view_choices(); view.index = index_of(view.choices, saved[@"view"], 0);
     DSRow *scale = [DSRow new]; scale.title = @"Scaling"; scale.choices = scaling_choices(); scale.index = index_of(scale.choices, saved[@"scaling"], 0);
     DSRow *notch = [DSRow new]; notch.title = @"Notch"; notch.choices = notch_choices(); notch.index = index_of(notch.choices, saved[@"notch"], 0);
     const char *shot = getenv("DS_LAUNCHER_SHOT");
     if (getenv("DS_NO_LAUNCHER") && !shot) {
-        if (saved.count) apply(video.choices[video.index][@"value"], scale.choices[scale.index][@"value"], notch.choices[notch.index][@"value"]);
+        if (saved.count) apply(video.choices[video.index][@"value"], view.choices[view.index][@"value"], scale.choices[scale.index][@"value"], notch.choices[notch.index][@"value"]);
         return 1;
     }
 
@@ -472,11 +484,14 @@ int ds_launcher_run(const char *game_dir, const char *data_dir)
     __block int ustate = updater ? UPD_CHECKING : UPD_NONE; __block NSString *latest = nil;
     upd.choices = update_choice(ustate, branch, built, nil);
     BOOL shotMode = shot != NULL;
-    DSSection *display = [DSSection new], *updSec = [DSSection new];
+    DSSection *display = [DSSection new], *d3dSec = [DSSection new], *updSec = [DSSection new];
+    d3dSec.title = @"Direct3D"; d3dSec.rows = @[view];
+    __weak DSRow *wvid = video, *wview = view;
+    d3dSec.summary = ^NSString * { return [wvid.choices[wvid.index][@"value"] isEqualToString:@"d3d"] ? wview.choices[wview.index][@"label"] : @"Used when Video is Direct3D"; };
     display.title = @"Display"; display.rows = notch_height() > 0 ? @[scale, notch] : @[scale];
     updSec.title = @"Updates"; updSec.summary = ^NSString * { NSDictionary *c = upd.choices[upd.index]; return [c[@"note"] length] ? [NSString stringWithFormat:@"%@ · %@", c[@"label"], c[@"note"]] : c[@"label"]; };
     DSLaunchView *v = [[DSLaunchView alloc] initWithFrame:NSMakeRect(0, 0, 780, 620)];
-    v.top = @[video]; v.sections = @[display, updSec]; v.open = -1; v.hover = v.pressed = HIT_NONE;
+    v.top = @[video]; v.sections = @[display, d3dSec, updSec]; v.open = -1; v.hover = v.pressed = HIT_NONE;
     __weak DSLaunchView *wv = v; __weak DSRow *wu = upd;
     updSec.activate = ^{ if (wu.activate) wu.activate(); };
     void (^check)(void) = ^{
@@ -535,8 +550,8 @@ int ds_launcher_run(const char *game_dir, const char *data_dir)
     [NSApp runModalForWindow:w];
     [w orderOut:nil];
     if (!result) return 0;
-    NSString *vv = video.choices[video.index][@"value"], *sv = scale.choices[scale.index][@"value"], *nv = notch.choices[notch.index][@"value"];
-    [@{@"video": vv, @"scaling": sv, @"notch": nv} writeToFile:plistPath atomically:YES];
-    apply(vv, sv, nv);
+    NSString *vv = video.choices[video.index][@"value"], *wv2 = view.choices[view.index][@"value"], *sv = scale.choices[scale.index][@"value"], *nv = notch.choices[notch.index][@"value"];
+    [@{@"video": vv, @"view": wv2, @"scaling": sv, @"notch": nv} writeToFile:plistPath atomically:YES];
+    apply(vv, wv2, sv, nv);
     return result;
 }
