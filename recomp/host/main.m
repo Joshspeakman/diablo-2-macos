@@ -201,6 +201,17 @@ static void cmdfile_poll(uint32_t fno)
     static const char *path; static off_t pos; static int init;
     if (!init) { init = 1; path = getenv("DS_CMDFILE"); }
     if (!path || fno % 15) return;
+    {   /* finished actions make room (a long test sends thousands): every kind is done within 100 frames of its start,
+         * a held key after its own length */
+        int n = 0;
+        for (int k = 0; k < nacts; k++) {
+            Act *a = &acts[k]; uint32_t len = !strcmp(a->kind, "hold") ? (uint32_t)a->y + 100 : 100;
+            if (a->frame != 0xffffffffu && fno > a->frame + len) continue;
+            if (n != k) acts[n] = *a;
+            n++;
+        }
+        nacts = n;
+    }
     FILE *f = fopen(path, "r"); if (!f) return;
     fseeko(f, pos, SEEK_SET); char line[700];
     while (nacts < 256 && fgets(line, sizeof line, f)) {
