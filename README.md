@@ -15,7 +15,8 @@ this repository: the build regenerates everything locally from your copy, and th
   both of its views (see [Graphics](#graphics));
 - an optional remastered Direct3D picture: drawn at the display's resolution, smooth textures, 60/120 fps or the
   display's refresh rate, and widescreen or ultra-wide, each a switch in the launch window;
-- sound through DirectSound on Core Audio: music, effects, speech.
+- sound through DirectSound on Core Audio: music, effects, speech, and the game's **3D Sound** and **Environmental
+  Effects** (see [Sound](#sound)).
 
 Battle.net and Open Battle.net are untested. What's next: [docs/PLAN.md](docs/PLAN.md).
 
@@ -43,6 +44,21 @@ Display, Width Display.
 Known limitations: with more frames, the picture runs up to one tick (40 ms) behind the game and character
 animations stay at 25 frames a second; in Width → Display the help screen (H) still points at its 800×600 places, and
 in multiplayer a wider view shows more than other players see.
+
+## Sound
+
+The game's Options → Sound Options has two settings that a 2000s sound card unlocked, and both work here:
+
+- **3D Sound**: each effect is a positioned voice (DirectSound 3D): placed left or right of your character as on screen
+  and faded with distance. 3D Bias (the slider under it) then becomes available too.
+- **Environmental Effects**: the room's acoustics, as Creative's EAX 2.0 cards gave them. Every area has its own
+  environment in the game's data (`SoundEnviron.txt`): none in the towns, a faint wide space in the wilderness, a stone
+  room's reverb in caves and the Catacombs, a hall in the Monastery, long tails in the tombs. A reverb in the runtime
+  (`recomp/runtime/win32/eax_reverb.c`: early reflections and an 8-line feedback delay network) renders them from
+  those numbers: decay time, high-frequency decay, reflections and reverb levels and delays, room size, diffusion.
+  Each sound's own EAX settings (direct and room levels, obstruction, occlusion) are applied as well.
+
+Both are off until chosen, and the game remembers the choice.
 
 ## Install
 
@@ -93,6 +109,10 @@ recomp/tests/run_tests.sh "/path/to/Diablo II"   # and the game end to end (afte
   every pixel is checked for each scaling filter (whole-pixel blocks, blends only at block edges, bilinear, scanline
   shading) and for the gamma ramp.
 - **Launch window** (`launcher_test.m`): its settings reach the runtime and are remembered; it draws with the art.
+- **EAX reverb** (`eax_reverb_test.c`): measured from impulse responses: the decay time (0.8–5 s, ±20%), the faster
+  treble decay with a low decay HF ratio, nothing before the reflections delay, levels in millibels (−600 mB = −6 dB of
+  energy; the late reverb's whole energy equals its level within 1.5 dB from a 2 m room to a 100 m space), silence when
+  the room is off, decorrelated stereo.
 - **The game** (`game_test.py`), on your copy in a scratch folder, through the window's own input path:
   - *video*: the Bink intro is shown (640×480 16-bit pictures that move) with its sound;
   - *menus, ingame, gdi*: every 8-bit picture on screen is exactly the game's palette for that frame (no colour lost
@@ -110,6 +130,9 @@ recomp/tests/run_tests.sh "/path/to/Diablo II"   # and the game end to end (afte
     16 ms apart, each moved on from the one before by an even step (blended, not repeated);
   - *d3d-wide*: the same character 1400 wide: the menus in the middle with black bars at the sides; in game a
     1400×600 frame with the orbs at its edges and the inventory opening at the right edge (not at its 800×600 place);
+  - *sound3d*: with 3D Sound and Environmental Effects chosen, the game finds the 3D voices and EAX 2.0 at start,
+    plays its effects through 3D buffers it places, sets each one's EAX properties and the area's environment, and
+    the mix in the game stays below full scale;
   - *tcpip*: two instances, one hosting and one joining by this Mac's LAN address, both in Act 1.
 - **Coverage** (`coverage_test.py`, about an hour; run it on its own): a character of every class is made through the
   menus, given every class skill (`tests/d2s.py` edits these scratch characters only), leaves town by its waypoint and
@@ -163,6 +186,11 @@ Notes on Diablo II:
   places that take a side panel as a quarter of the screen get 200 (half its 400 pixels), so the view slides and
   the world ends where the panel does; the world is still drawn between two open panels; out of a game the menus are
   drawn in the middle and the cursor kept to their 800 pixels.
+- Sound (`runtime/win32/dsound.c`): at start the game probes the sound device for 3D and EAX and greys the options it
+  can't have. The device reports hardware 3D voices (the game wants 16), its 3D buffers answer `IKsPropertySet` with
+  EAX 2.0 listener and buffer properties (and EAX 1.0 reverb), and those are rendered: 3D buffers placed against the
+  listener, each sound's EAX direct/room/obstruction/occlusion levels as gains and treble filters, and its room send
+  into the reverb (`eax_reverb.c`), whose settings follow the listener's environment.
 - The game's language file `D2.LNG` is loaded as a resource-only module; characters are kept where 1.14d keeps them on
   Windows (`SHGetKnownFolderPath` Saved Games); settings the game keeps in the registry persist in
   `<data>/registry.txt`.
@@ -185,7 +213,9 @@ Environment for development:
 - testing: `DS_TEST=1` (background window, no launch window), `DS_CMDFILE=<file>` (scripted clicks, keys, typing and
   screenshots), `W32_BURST_DIR=<dir>` (12 consecutive frames when `<dir>/go` appears), `W32_AUDIO_DUMP=<file.wav>`,
   `DSR_RENDER_SCALE=<1-4>`;
-- logs: `W32_DDLOG=1`, `W32_REGLOG=1`, `W32_NETLOG=1`, `W32_SEHLOG=1`, `W32_TRACE=<file>`, `DS_WINLOG=1` (the game
+- logs: `W32_DDLOG=1`, `W32_REGLOG=1`, `W32_NETLOG=1`, `W32_SEHLOG=1`, `W32_TRACE=<file>`, `W32_DSLOG=1` (DirectSound,
+  with every EAX property set), `W32_DS3DLOG=1` (3D placements and their gains), `W32_EAXLOG=1` (each second: what is
+  sent to the room and what the reverb adds), `DS_WINLOG=1` (the game
   window: shown and hidden, full screen, activation, and whether it is really on screen);
 - the launch window: `DS_LAUNCHER_AUTOPLAY=1` presses Play (tests); Play starts the game in a fresh process (a game
   window shown by the process that ran the launch window could stay off screen in full screen), `DS_SAME_PROCESS=1`

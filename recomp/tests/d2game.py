@@ -86,6 +86,12 @@ def wav_rms(path, t0, t1):
     d = w.readframes(n); x = struct.unpack('<%dh' % (len(d) // 2), d)
     return math.sqrt(sum(v * v for v in x) / max(len(x), 1)) if x else 0
 
+def wav_peak(path, t0=0):
+    """the loudest sample of a 16-bit recording from t0 seconds on, 1.0 = full scale"""
+    w = wave.open(path); w.setpos(min(int(t0 * w.getframerate()), w.getnframes())); d = w.readframes(w.getnframes())
+    x = struct.unpack('<%dh' % (len(d) // 2), d)
+    return max((abs(v) for v in x), default=0) / 32768.0
+
 def to_hero_select(g):
     """clicks past the intro videos, the title and the main menu (Single Player) to the hero selection"""
     time.sleep(max(0.5, 5 - (time.time() - g.t0)))
