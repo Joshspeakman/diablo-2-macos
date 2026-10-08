@@ -25,6 +25,9 @@ recorded sound and the files the game writes:
             (the movement blended between the game's 25 ticks, not repeated frames); then 1400 wide (D2_WIDTH): the
             menus in the middle with bars at the sides, in game a 1400x600 frame with the orbs at its edges, and the
             inventory opening at the right edge (the middle of the screen untouched)
+  sound3d   with 3D Sound and Environmental Effects chosen (the game's Sound Mixer setting 2): the game finds the
+            device's 3D voices and EAX 2.0 at start, plays its sounds through 3D buffers it places, sets each one's EAX
+            properties and the area's environment, and the mix in the game stays below full scale
   tcpip     two instances: one hosts a TCP/IP game, the other joins it by this Mac's LAN address; both are in Act 1
             and the host's server has accepted the second player
 
@@ -173,6 +176,24 @@ try:
                'menus %dx%d (sides %.1f, middle %.1f); game %dx%d, orbs %s; inventory at the right edge %.1f, at its 800x600 place %.1f' % (
                    mw, mh, bars, mid, w, h, 'at the edges' if orbs else 'missing', panel, where))
         g.stop()
+    # ---------------- 3D sound and environmental effects (DirectSound 3D, EAX) ----------------
+    if stage('sound3d'):
+        d = os.path.join(WORK, 'sound3d'); os.makedirs(d, exist_ok=True)
+        open(os.path.join(d, 'registry.txt'), 'w').write('hkcu\\software\\blizzard entertainment\\diablo ii\tSound Mixer\t4\t02000000\n')
+        g = Game('sound3d', {'W32_DSLOG': '1', 'W32_DS3DLOG': '1'}, saves=found[:1] if 'found' in globals() and found else ())
+        to_hero_select(g)
+        if 'found' in globals() and found: g.send('click:690,555', 12)                       # the character made for d3d: OK
+        else: g.send('click:400,300', 2); g.send('type:MacSound', 2); g.send('click:690,555', 12)
+        t_in = time.time() - g.t0                                                            # in Act 1 (the menus' own sounds peak before)
+        g.send('click:700,150', 4); s = g.shot('sound3d'); ok_hud = hud(s)[0]; g.stop()
+        log = open(g.log, errors='replace').read()
+        eax2 = 'KsPropertySet QuerySupport set 1 id 1' in log
+        voices = log.count('QueryInterface 279afa86 -> ok'); placed = log.count('dsound: 3D buffer')
+        per_sound = 'EAX set 2 ' in log; env = 'EAX set 1 id 11' in log
+        peak = wav_peak(g.wav, t_in) if os.path.exists(g.wav) else 1
+        report('sound3d', eax2 and voices > 3 and placed > 10 and per_sound and env and ok_hud and peak < 1.0,
+               'EAX 2.0 found: %s; %d 3D voices, %d placements; per-sound EAX: %s; environment set: %s; peak %.3f' % (
+                   eax2, voices, placed, per_sound, env, peak))
     # ---------------- TCP/IP: one instance hosts, another joins ----------------
     if stage('tcpip'):
         def to_tcpip(g):
