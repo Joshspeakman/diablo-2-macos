@@ -37,13 +37,16 @@ display. Every option is off (the original) unless chosen:
 | Textures → Smooth | Filtered textures (no stair-steps); sprites keep clean edges |
 | Frame Rate → 60 · 120 · Display | Frames between the game's 25 ticks a second, with movement blended between them: smooth walking, scrolling, monsters and missiles |
 | Width → Display | The display's shape (16:10, 16:9, 21:9, ...): more of the world to the sides, the interface at the screen's edges, menus kept 4:3 in the middle |
+| Zoom → Mouse Wheel | Zoom out with the mouse wheel (or two fingers on a trackpad) to see more of the world around you, up to 1.5× or 2×; wheel up returns to the game's own view. The interface stays as it is |
 
 A "remastered" setup: Video Direct3D, View Perspective (or Isometric), Resolution Display, Textures Smooth, Frame Rate
-Display, Width Display.
+Display, Width Display, Zoom Mouse Wheel.
 
 Known limitations: with more frames, the picture runs up to one tick (40 ms) behind the game and character
 animations stay at 25 frames a second; in Width → Display the help screen (H) still points at its 800×600 places, and
-in multiplayer a wider view shows more than other players see.
+in multiplayer a wider or zoomed-out view shows more than other players see. Zoomed out, the GPU draws that much more
+of the world (about 2.5× at 1.6×, so at the display's resolution the frame rate can halve), and at the farthest zoom in
+a large outdoor area the ground can end at the rooms the game has loaded around you.
 
 ## Sound
 
@@ -91,6 +94,7 @@ has:
 | Direct3D → Textures | **Sharp** (the original pixels) · Smooth (bilinear filtering; cut-out sprites keep clean edges) |
 | Direct3D → Frame Rate | **Original** (25, as the game draws) · 60 · 120 · Display (its refresh rate): movement blended between the game's ticks |
 | Direct3D → Width | **Original** (4:3) · Display (the display's shape at the same height: more of the world to the sides; others in multiplayer see less) |
+| Direct3D → Zoom | **Off** (the game's own view) · Mouse Wheel, 1.5× · Mouse Wheel, 2× (wheel down to see more of the world, up to come back) |
 | Display → Scaling | **Sharp** (square pixels, smoothed only at their edges) · Smooth (bilinear) · Pixel (nearest) · CRT (sharp with scanlines) |
 | Display → Notch | Hide the Notch (the picture below the camera, in macOS full screen) · Around the Notch (the whole display, the camera over the picture's top centre) |
 | Updates | rebuilds the app from the newest commit of its branch, from your own copy |
@@ -128,6 +132,8 @@ recomp/tests/run_tests.sh "/path/to/Diablo II"   # and the game end to end (afte
     its place, the same brightness as at 800×600;
   - *d3d-fps*: the same character walking at 60 frames a second: 12 consecutive frames (read back from the GPU) about
     16 ms apart, each moved on from the one before by an even step (blended, not repeated);
+  - *zoom*: Direct3D with Zoom 2×: ten wheel notches out draw the world to the screen's corners with the bottom bar
+    and orbs as they were, and ten back return to the game's own view;
   - *d3d-wide*: the same character 1400 wide: the menus in the middle with black bars at the sides; in game a
     1400×600 frame with the orbs at its edges and the inventory opening at the right edge (not at its 800×600 place);
   - *sound3d*: with 3D Sound and Environmental Effects chosen, the game finds the 3D voices and EAX 2.0 at start,
@@ -186,6 +192,14 @@ Notes on Diablo II:
   places that take a side panel as a quarter of the screen get 200 (half its 400 pixels), so the view slides and
   the world ends where the panel does; the world is still drawn between two open panels; out of a game the menus are
   drawn in the middle and the cursor kept to their 800 pixels.
+- Zoom (`D2_ZOOM_MAX`, `runtime/win32/d2zoom.c`): the in-game draw (`0x44c990`) draws the world, then the interface.
+  For the world pass only, the view's rectangle, the rectangle its ground tiles are tested against and the screen's
+  size where the game reads it (graphics layer and client) are made zoom times larger, and the rooms whose ground is
+  drawn grow from the player's room and its neighbours to their neighbours too; the Direct3D draws made then are scaled
+  back into the screen (`ddraw_pal.c`), and everything is put back before the interface. The camera the pass leaves is
+  the larger view's, so input follows: a click in the world (`0x462d00`) and the search for the unit under the cursor
+  (`0x467130`) take the point under the cursor in the larger view; the side panel and bottom bar tests keep the screen's.
+  The mouse wheel sets a target the view eases to.
 - Sound (`runtime/win32/dsound.c`): at start the game probes the sound device for 3D and EAX and greys the options it
   can't have. The device reports hardware 3D voices (the game wants 16), its 3D buffers answer `IKsPropertySet` with
   EAX 2.0 listener and buffer properties (and EAX 1.0 reverb), and those are rendered: 3D buffers placed against the
@@ -208,7 +222,8 @@ recomp/run.sh "/path/to/Diablo II"                    # play from the build (dat
 Environment for development:
 
 - the launch window's settings: `D2_RENDERER=ddraw|gdi|d3d`, `D2_PERSPECTIVE=on|off`, `D2_RESOLUTION=original|display`,
-  `D2_TEXTURES=sharp|smooth`, `D2_FPS=<n>|display`, `D2_WIDTH=<n>|display`, `DSR_FILTER=sharp|smooth|pixel|crt`,
+  `D2_TEXTURES=sharp|smooth`, `D2_FPS=<n>|display`, `D2_WIDTH=<n>|display`, `D2_ZOOM_MAX=<1-3>` (`D2_ZOOM=<z>`: a fixed
+  zoom, for tests), `DSR_FILTER=sharp|smooth|pixel|crt`,
   `DS_NOTCH=hide|around`;
 - testing: `DS_TEST=1` (background window, no launch window), `DS_CMDFILE=<file>` (scripted clicks, keys, typing and
   screenshots), `W32_BURST_DIR=<dir>` (12 consecutive frames when `<dir>/go` appears), `W32_AUDIO_DUMP=<file.wav>`,

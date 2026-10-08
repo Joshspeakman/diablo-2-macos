@@ -56,7 +56,7 @@ enum { BANNER_H = 252, TOP_Y = 270 };
 - (NSRect)flyRect   /* an open group's panel: above Back and Play, taller (reaching up into the banner) when its rows need it */
 {
     NSRect b = self.bounds; CGFloat h = b.size.height - 268, need = 80 + 74 * (CGFloat)(self.open >= 0 ? self.sections[self.open].rows.count : 0);
-    CGFloat grow = MIN(MAX(need - h, 0), 60);
+    CGFloat grow = MIN(MAX(need - h, 0), 168 - 16);            /* as far up as its rows need, short of the window's top */
     return NSMakeRect(40, 168 - grow, b.size.width - 80, h + grow);
 }
 - (NSRect)rowRect:(NSInteger)k { CGFloat y = self.open >= 0 ? self.flyRect.origin.y + 70 : TOP_Y + 14; return NSMakeRect(70, y + 74 * k, self.bounds.size.width - 140, 64); }
@@ -135,13 +135,14 @@ enum { BANNER_H = 252, TOP_Y = 270 };
     }
     [super keyDown:e];
 }
-static void draw_text(NSString *s, NSFont *f, NSColor *c, NSRect r, NSTextAlignment al, NSShadow *sh)
+static void draw_text_mode(NSString *s, NSFont *f, NSColor *c, NSRect r, NSTextAlignment al, NSShadow *sh, NSLineBreakMode mode)
 {
-    NSMutableParagraphStyle *ps = [NSMutableParagraphStyle new]; ps.alignment = al; ps.lineBreakMode = NSLineBreakByTruncatingTail;
+    NSMutableParagraphStyle *ps = [NSMutableParagraphStyle new]; ps.alignment = al; ps.lineBreakMode = mode;
     NSMutableDictionary *a = [@{NSFontAttributeName: f, NSForegroundColorAttributeName: c, NSParagraphStyleAttributeName: ps} mutableCopy];
     if (sh) a[NSShadowAttributeName] = sh;
     [s drawInRect:r withAttributes:a];
 }
+static void draw_text(NSString *s, NSFont *f, NSColor *c, NSRect r, NSTextAlignment al, NSShadow *sh) { draw_text_mode(s, f, c, r, al, sh, NSLineBreakByTruncatingTail); }
 - (void)drawTitle:(NSRect)r
 {
     /* "DIABLO II" when the game's logo isn't there: brushed silver letters, a copper rim, a dark drop shadow */
@@ -286,7 +287,7 @@ static void draw_text(NSString *s, NSFont *f, NSColor *c, NSRect r, NSTextAlignm
         [self drawButton:r title:s.title.uppercaseString code:code primary:NO];
         NSString *sum = s.summary ? s.summary() : nil;
         if (!sum) { NSMutableArray *l = [NSMutableArray array]; for (DSRow *row in s.rows) [l addObject:row.choices[row.index][@"label"]]; sum = [l componentsJoinedByString:@" · "]; }
-        draw_text(sum, cp(11, NO), dim(), NSMakeRect(r.origin.x - 10, NSMaxY(r) + 6, r.size.width + 20, 32), NSTextAlignmentCenter, nil);
+        draw_text_mode(sum, cp(11, NO), dim(), NSMakeRect(r.origin.x - 10, NSMaxY(r) + 6, r.size.width + 20, 32), NSTextAlignmentCenter, nil, NSLineBreakByWordWrapping);   /* two lines when it needs them */
     }
     if (self.note.length) draw_text(self.note, cp(11, NO), dim(), NSMakeRect(54, [self sectionRect:(NSInteger)self.sections.count - 1].origin.y + 104, b.size.width - 108, 30), NSTextAlignmentCenter, nil);
     self.open = fly; self.focus = foc; self.hover = hov;
@@ -365,7 +366,15 @@ static NSArray<NSDictionary *> *fps_choices(void)
 static NSArray<NSDictionary *> *width_choices(void)
 {
     return @[@{@"value": @"800", @"label": @"Original", @"note": @"4:3, with bars at the sides of a wider display"},
-             @{@"value": @"display", @"label": @"Display", @"note": @"Wide: more of the world to the sides (others in multiplayer see less)"}];
+             @{@"value": @"display", @"label": @"Display", @"note": @"A wider view of the world, more than other players see"}];
+}
+/* Direct3D zoomed out (D2_ZOOM_MAX, runtime/win32/d2zoom.c): the mouse wheel shows more of the world around you, from
+ * the game's own view out to the farthest chosen here */
+static NSArray<NSDictionary *> *zoom_choices(void)
+{
+    return @[@{@"value": @"1", @"label": @"Off", @"note": @"The game's own view"},
+             @{@"value": @"1.5", @"label": @"Mouse Wheel, 1.5×", @"note": @"Wheel down to see more of the world, up to 1.5×"},
+             @{@"value": @"2", @"label": @"Mouse Wheel, 2×", @"note": @"Up to twice as far; heavier on the GPU"}];
 }
 static NSInteger index_of(NSArray<NSDictionary *> *c, NSString *v, NSInteger dflt)
 {
@@ -383,6 +392,7 @@ static void apply(NSDictionary<NSString *, NSString *> *v)
     else { unsetenv("D2_RESOLUTION"); unsetenv("D2_TEXTURES"); }
     if (d3d && ![v[@"fps"] isEqualToString:@"25"]) setenv("D2_FPS", v[@"fps"].UTF8String, 1); else unsetenv("D2_FPS");
     if (d3d && ![v[@"width"] isEqualToString:@"800"]) setenv("D2_WIDTH", v[@"width"].UTF8String, 1); else unsetenv("D2_WIDTH");
+    if (d3d && v[@"zoom"] && ![v[@"zoom"] isEqualToString:@"1"]) setenv("D2_ZOOM_MAX", v[@"zoom"].UTF8String, 1); else unsetenv("D2_ZOOM_MAX");
     setenv("DSR_FILTER", v[@"scaling"].UTF8String, 1);
     setenv("DS_NOTCH", v[@"notch"].UTF8String, 1);
 }
@@ -513,7 +523,8 @@ int ds_launcher_run(const char *game_dir, const char *data_dir)
     DSRow *texr = [DSRow new]; texr.title = @"Textures"; texr.choices = texture_choices(); texr.index = index_of(texr.choices, saved[@"textures"], 0);
     DSRow *fpsr = [DSRow new]; fpsr.title = @"Frame Rate"; fpsr.choices = fps_choices(); fpsr.index = index_of(fpsr.choices, saved[@"fps"], 0);
     DSRow *widr = [DSRow new]; widr.title = @"Width"; widr.choices = width_choices(); widr.index = index_of(widr.choices, saved[@"width"], 0);
-    NSDictionary<NSString *, DSRow *> *rows = @{@"video": video, @"view": view, @"resolution": res, @"textures": texr, @"fps": fpsr, @"width": widr,
+    DSRow *zoomr = [DSRow new]; zoomr.title = @"Zoom"; zoomr.choices = zoom_choices(); zoomr.index = index_of(zoomr.choices, saved[@"zoom"], 0);
+    NSDictionary<NSString *, DSRow *> *rows = @{@"video": video, @"view": view, @"resolution": res, @"textures": texr, @"fps": fpsr, @"width": widr, @"zoom": zoomr,
                                                 @"scaling": scale, @"notch": notch};
     const char *shot = getenv("DS_LAUNCHER_SHOT");
     if (getenv("DS_NO_LAUNCHER") && !shot) {
@@ -529,7 +540,7 @@ int ds_launcher_run(const char *game_dir, const char *data_dir)
     upd.choices = update_choice(ustate, branch, built, nil);
     BOOL shotMode = shot != NULL;
     DSSection *display = [DSSection new], *d3dSec = [DSSection new], *updSec = [DSSection new];
-    d3dSec.title = @"Direct3D"; d3dSec.rows = @[view, res, texr, fpsr, widr];
+    d3dSec.title = @"Direct3D"; d3dSec.rows = @[view, res, texr, fpsr, widr, zoomr];
     __weak DSRow *wvid = video, *wview = view;
     __weak DSRow *wres = res, *wtex = texr, *wfps = fpsr, *wwid = widr;
     d3dSec.summary = ^NSString * {
