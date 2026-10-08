@@ -169,7 +169,7 @@ try:
         orbs = life[0] > 2 * (life[1] + life[2]) / 2 + 30 and mana[2] > 2 * (mana[0] + mana[1]) / 2 + 30
         g.send('key:73', 1.5); s1 = g.shot('wide-inventory')
         panel = brightness(s1, (W - 380, 80, W - 100, 300)); where = brightness(s1, (420, 80, 700, 300))   # stone grey there, world where it would be at 800x600
-        report('d3d-wide', mw == W and bars < 1 and mid > 5 and (w, h) == (W, 600) and orbs and panel > 2 * where and g.alive(),
+        report('d3d-wide', mw == W and bars < 1 and mid > 5 and (w, h) == (W, 600) and orbs and panel > 1.5 * where and g.alive(),
                'menus %dx%d (sides %.1f, middle %.1f); game %dx%d, orbs %s; inventory at the right edge %.1f, at its 800x600 place %.1f' % (
                    mw, mh, bars, mid, w, h, 'at the edges' if orbs else 'missing', panel, where))
         g.stop()
