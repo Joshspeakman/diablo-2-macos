@@ -5,7 +5,7 @@ run on Metal and Core Audio, the way [dungeon-siege-macos](https://github.com/Jo
 dungeon-siege-2-macos do for the Dungeon Siege games. No Wine, no Rosetta, no emulator. Nothing from the game is in
 this repository: the build regenerates everything locally from your copy, and the game folder is only read.
 
-**State: Beta 1** (the first release). The game is playable natively:
+**State: Beta 2.** The game is playable natively:
 
 - the Blizzard intro and the cinematics (Bink, with sound), the title, the menus;
 - single player: new characters of every class, all five acts (their towns and waypoints), every class's skills, the
@@ -14,7 +14,8 @@ this repository: the build regenerates everything locally from your copy, and th
 - all three of the game's renderers: DirectDraw (the classic 8-bit picture), its windowed mode, and Direct3D with
   both of its views (see [Graphics](#graphics));
 - an optional remastered Direct3D picture: drawn at the display's resolution, smooth textures, 60/120 fps or the
-  display's refresh rate, and widescreen or ultra-wide, each a switch in the launch window;
+  display's refresh rate, widescreen or ultra-wide, and zooming out with the mouse wheel, each a switch in the launch
+  window;
 - sound through DirectSound on Core Audio: music, effects, speech, and the game's **3D Sound** and **Environmental
   Effects** (see [Sound](#sound)).
 
