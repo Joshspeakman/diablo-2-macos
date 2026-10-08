@@ -25,6 +25,9 @@ recorded sound and the files the game writes:
             (the movement blended between the game's 25 ticks, not repeated frames); then 1400 wide (D2_WIDTH): the
             menus in the middle with bars at the sides, in game a 1400x600 frame with the orbs at its edges, and the
             inventory opening at the right edge (the middle of the screen untouched)
+  zoom      Direct3D with the launch window's Zoom (D2_ZOOM_MAX=2): the mouse wheel zooms out, the world is drawn out to
+            the screen's edges (the corners lit, not the black past the game's own view) with the bottom bar and orbs as
+            they were; the wheel back up returns to the game's own view (the picture as before)
   sound3d   with 3D Sound and Environmental Effects chosen (the game's Sound Mixer setting 2): the game finds the
             device's 3D voices and EAX 2.0 at start, plays its sounds through 3D buffers it places, sets each one's EAX
             properties and the area's environment, and the mix in the game stays below full scale
@@ -176,6 +179,18 @@ try:
                'menus %dx%d (sides %.1f, middle %.1f); game %dx%d, orbs %s; inventory at the right edge %.1f, at its 800x600 place %.1f' % (
                    mw, mh, bars, mid, w, h, 'at the edges' if orbs else 'missing', panel, where))
         g.stop()
+    # ---------------- zoomed out (Direct3D, the mouse wheel) ----------------
+    if stage('zoom'):
+        g = Game('zoom', {'D2_RENDERER': 'd3d', 'D2_ZOOM_MAX': '2'}); to_hero_select(g)
+        g.send('click:400,300', 2); g.send('type:MacZoom', 2); g.send('click:690,555', 12)
+        g.send('move:400,560', 1); s1 = g.shot('zoom-1')                                     # the cursor on the bottom bar, out of the picture
+        g.send('wheel:-10', 3); s2 = g.shot('zoom-out')
+        corners = min(brightness(s2, (10, 10, 170, 110)), brightness(s2, (630, 400, 790, 520)), brightness(s2, (10, 400, 170, 520)))
+        ok_hud = hud(s2)[0]; changed = differs(s1, s2)
+        g.send('wheel:10', 3); s3 = g.shot('zoom-back'); back = differs(s1, s3); g.stop()
+        report('zoom', corners > 4 and ok_hud and changed > 0.1 and back < 0.05,
+               'zoomed out: corners %.1f, HUD %s, the picture changed in %.0f%% of samples; back in, %.0f%% differ from before' % (
+                   corners, 'kept' if ok_hud else 'lost', 100 * changed, 100 * back))
     # ---------------- 3D sound and environmental effects (DirectSound 3D, EAX) ----------------
     if stage('sound3d'):
         d = os.path.join(WORK, 'sound3d'); os.makedirs(d, exist_ok=True)

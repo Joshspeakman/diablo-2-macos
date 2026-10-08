@@ -44,6 +44,13 @@ HOOKS = {                 # address: description (runtime/win32/hooks.c rt_hook)
     0x0044f278: 'frame rate: draw on every pass of the idle loop in game',
     0x0044f28b: 'frame rate: units at blended positions for the draw',
     0x0044f291: 'frame rate: real positions back after the draw',
+    0x0044c9ab: 'zoom: the world pass begins (a larger view)',
+    0x0044cafd: 'zoom: the world pass ends (the view back for the interface)',
+    0x0044cb4f: 'zoom: the in-game draw ends',
+    0x004de860: 'zoom: the rooms whose ground is drawn (their neighbours too)',
+    0x00462d00: 'zoom: a click in the world (the cursor into the larger view)',
+    0x0046745f: 'zoom: the box of the unit under the cursor, recorded while the world is drawn',
+    0x0046723c: 'zoom: the point the unit under the cursor is looked for at (into the larger view)',
 }
 JUNK = {'in', 'out', 'insb', 'insd', 'insw', 'outsb', 'outsd', 'outsw', 'iretd', 'hlt', 'cli', 'sti', 'int1', 'into',
         'int', 'aaa', 'aas', 'aam', 'aad', 'daa', 'das', 'salc', 'les', 'lds', 'retf', 'ljmp', 'lcall', 'arpl', 'bound',

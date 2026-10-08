@@ -306,7 +306,10 @@ static const char *script_tick(uint32_t fno)       /* returns a screenshot path 
             for (;;) { if (at < 0x10000u) { v = 0; break; } memcpy(&v, G_MEM + at, 4); if (*e != ',') break; at = v + (uint32_t)strtoul(e + 1, &e, 16); }
             fprintf(stderr, "Diablo2Native: peek %s = 0x%08x (byte 0x%02x)\n", a->path, v, v & 0xff);
         }
-        else if (!strcmp(a->kind, "wheel") && fno >= a->frame && fno < a->frame + (uint32_t)abs(a->x)) post(0x20a, ((uint32_t)(int16_t)(a->x > 0 ? 120 : -120) << 16), pos_lp());   /* x notches */
+        else if (!strcmp(a->kind, "wheel") && fno >= a->frame && fno < a->frame + (uint32_t)abs(a->x)) {   /* x notches, as the wheel's (zoom first) */
+            int d2zoom_wheel(double notches);
+            if (!d2zoom_wheel(a->x > 0 ? 1 : -1)) post(0x20a, ((uint32_t)(int16_t)(a->x > 0 ? 120 : -120) << 16), pos_lp());
+        }
         else if (!strcmp(a->kind, "type") && fno == a->frame) {   /* real NSEvents through the window (keyboard path) */
             NSString *text = @(a->path);
             dispatch_async(dispatch_get_main_queue(), ^{ type_text(text); });
@@ -437,6 +440,8 @@ static void rel_motion(double gx, double gy)
 - (void)otherMouseUp:(NSEvent *)e { buttons &= ~0x10u; w32_keys[4] = 0; post(0x208, mk(), pos_lp()); }
 - (void)scrollWheel:(NSEvent *)e
 {
+    int d2zoom_wheel(double notches);                                 /* zoom (runtime/win32/d2zoom.c), when the launch window turned it on */
+    if (d2zoom_wheel(e.hasPreciseScrollingDeltas ? e.scrollingDeltaY / 10.0 : e.scrollingDeltaY)) return;
     static double acc; acc += e.hasPreciseScrollingDeltas ? e.scrollingDeltaY / 10.0 : e.scrollingDeltaY;
     while (acc >= 1 || acc <= -1) { int d = acc > 0 ? 1 : -1; acc -= d; post(0x20a, ((uint32_t)(int16_t)(120 * d) << 16) | mk(), pos_lp()); }
 }

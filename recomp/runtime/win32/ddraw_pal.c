@@ -833,6 +833,14 @@ static void dev_draw(PDev *d, uint32_t prim, uint32_t vt, uint32_t verts, uint32
         int dx = d2wide_shift(x0) + d2wide_menu_shift();
         if (dx) for (uint32_t k = 0; k < nv; k++) { float x; memcpy(&x, (uint8_t *)(p + 4) + k * 32, 4); x += (float)dx; memcpy((uint8_t *)(p + 4) + k * 32, &x, 4); }
     }
+    if (fvf == 0x1c4) {   /* Diablo II zoomed out (d2zoom.c): the world pass's draws scaled into the screen */
+        int d2zoom_draw(float *scale, float *x0, float *y0); float sc, zx, zy;
+        if (d2zoom_draw(&sc, &zx, &zy))
+            for (uint32_t k = 0; k < nv; k++) {
+                float v[2]; memcpy(v, (uint8_t *)(p + 4) + k * 32, 8);
+                v[0] = zx + (v[0] - zx) * sc; v[1] = zy + (v[1] - zy) * sc; memcpy((uint8_t *)(p + 4) + k * 32, v, 8);
+            }
+    }
     if (ni) { memset((uint8_t *)(p + 4) + vbytes, 0, ibytes); memcpy((uint8_t *)(p + 4) + vbytes, G_MEM + idx, ni * 2); }
     cmd_end(); d->rt->gpu_newer = 1;
 }
