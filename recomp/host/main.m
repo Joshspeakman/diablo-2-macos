@@ -8,6 +8,7 @@
 #ifndef DS_BUILD
 #define DS_BUILD "dev"
 #endif
+#include <spawn.h>
 #include <pthread.h>
 #include <dlfcn.h>
 #include <mach/mach.h>
@@ -363,14 +364,30 @@ static void key_event(uint16_t code, int down, int repeat)
  * which goes to the window under the pointer). */
 static void capture(int on);
 /* The full-screen window's frame. AppKit asks a full-screen window for it through these four (private) methods, and
- * the same answer from all of them keeps it across hiding and showing the app too. The launcher's Notch row: around
- * (DS_NOTCH=around) the whole display, the camera housing over the picture's top centre; otherwise the area below it
- * (AppKit would move this borderless window below the notch without making it shorter, its bottom off the screen). */
+ * the same answer from all of them keeps it across hiding and showing the app too: the area below the notch (AppKit
+ * would move the window below it without making it shorter, its bottom off the screen). The launcher's Notch row
+ * around (DS_NOTCH=around), the whole display with the camera housing over the picture's top centre, is borderless(). */
 static int notch_around(void) { static int v = -1; if (v < 0) v = getenv("DS_NOTCH") && !strcmp(getenv("DS_NOTCH"), "around"); return v; }
+/* macOS full screen keeps a window below the camera housing whatever it asks for, so around the notch the game is a
+ * screen-sized borderless window instead (the Dock and menu bar hidden while it is in front) */
+static int borderless(void) { return getenv("DS_BORDERLESS") || notch_around(); }
 @interface GameWindow : NSWindow @end
 @implementation GameWindow
 - (BOOL)canBecomeKeyWindow { return YES; }
 - (BOOL)canBecomeMainWindow { return YES; }
+- (NSRect)constrainFrameRect:(NSRect)r toScreen:(NSScreen *)sc { return borderless() ? r : [super constrainFrameRect:r toScreen:sc]; }   /* over the menu bar and notch */
+/* Keys are the game's view's even when the window itself has become the first responder (after the switch to full
+ * screen): there AppKit would take Esc to leave full screen (cancelOperation:), dropping the game to a desktop
+ * window, before the game sees it (skip a movie, its menus) */
+- (BOOL)performKeyEquivalent:(NSEvent *)e
+{
+    if (e.type == NSEventTypeKeyDown && e.keyCode == 0x35 && !(e.modifierFlags & NSEventModifierFlagCommand)) { [self.contentView keyDown:e]; return YES; }
+    return [super performKeyEquivalent:e];
+}
+- (void)keyDown:(NSEvent *)e { if (e.modifierFlags & NSEventModifierFlagCommand) [super keyDown:e]; else [self.contentView keyDown:e]; }
+- (void)keyUp:(NSEvent *)e { [self.contentView keyUp:e]; }
+- (void)flagsChanged:(NSEvent *)e { [self.contentView flagsChanged:e]; }
+- (void)cancelOperation:(id)sender { (void)sender; }
 - (NSRect)gameFrame
 {
     NSRect f = (self.screen ?: NSScreen.mainScreen).frame;
@@ -485,19 +502,36 @@ static void window_created(uint32_t hwnd, int x, int y, int w, int h, uint32_t s
         [win setLevel:NSNormalWindowLevel];
     });
 }
+static int winlog(void) { static int v = -1; if (v < 0) v = getenv("DS_WINLOG") != NULL; return v; }
+/* DS_WINLOG: whether the game's window is really on screen (occlusion: what the window server composites) */
+static void check_shown(void)
+{
+    if (!winlog()) return;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1500 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+        if (win) fprintf(stderr, "win: check: occlusion visible=%d fullscreen=%d first responder %s\n", (win.occlusionState & NSWindowOcclusionStateVisible) != 0,
+                         (int)!!(win.styleMask & NSWindowStyleMaskFullScreen), NSStringFromClass([win.firstResponder class]).UTF8String);
+    });
+}
 static void window_changed(uint32_t hwnd, int x, int y, int w, int h, int visible)
 {
     (void)x; (void)y; (void)w; (void)h;
     if (hwnd != game_hwnd) return;
+    if (winlog()) fprintf(stderr, "win: game shows=%d (%d,%d %dx%d)\n", visible, x, y, w, h);
     dispatch_async(dispatch_get_main_queue(), ^{
+        if (winlog()) fprintf(stderr, "win: main: shows=%d visible=%d fullscreen=%d key=%d active=%d onActiveSpace=%d\n", visible, win.visible,
+                              (int)!!(win.styleMask & NSWindowStyleMaskFullScreen), win.keyWindow, NSApp.active, win.onActiveSpace);
         if (!win) return;
         if (visible && !win.visible) {
             if (test_mode) [win orderBack:nil];
             else if (lab_mode) { [win makeKeyAndOrderFront:nil]; [NSApp activateIgnoringOtherApps:YES]; }
             else {
                 [win makeKeyAndOrderFront:nil]; [NSApp activateIgnoringOtherApps:YES]; capture(1);
-                if (getenv("DS_BORDERLESS")) [NSApp setPresentationOptions:NSApplicationPresentationHideDock | NSApplicationPresentationHideMenuBar];   /* the old way: a screen-sized window */
+                if (borderless()) {   /* a screen-sized window, the Dock and menu bar hidden: around the notch, or DS_BORDERLESS */
+                    [NSApp setPresentationOptions:NSApplicationPresentationHideDock | NSApplicationPresentationHideMenuBar];
+                    [win setFrame:(win.screen ?: NSScreen.mainScreen).frame display:YES];
+                }
                 else enter_fullscreen();
+                check_shown();
             }
         }
         else if (!visible && win.visible) { leave_fullscreen(); [win orderOut:nil]; capture(0); }
@@ -530,8 +564,9 @@ static void type_text(NSString *text)
 
 @interface AppDelegate : NSObject <NSApplicationDelegate> @end
 @implementation AppDelegate
-- (void)applicationDidBecomeActive:(NSNotification *)n { (void)n; if (win.visible && !lab_mode) capture(1); post(0x1c, 1, 0); }
-- (void)applicationDidResignActive:(NSNotification *)n { (void)n; capture(0); post(0x1c, 0, 0); }
+- (void)applicationDidBecomeActive:(NSNotification *)n { (void)n; if (winlog()) fprintf(stderr, "win: app active\n"); if (win.visible && !lab_mode) capture(1); post(0x1c, 1, 0);
+                                                                 post(0x112, 0xf120, 0); }   /* SC_RESTORE: the game minimized itself when it lost the focus */
+- (void)applicationDidResignActive:(NSNotification *)n { (void)n; if (winlog()) fprintf(stderr, "win: app inactive\n"); capture(0); post(0x1c, 0, 0); }
 - (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)s { (void)s; ds_trace_save(&frame_trace); frame_trace.samples = NULL; return NSTerminateNow; }
 @end
 
@@ -634,11 +669,23 @@ int main(int argc, char **argv)
             int ds_launcher_run(const char *game_dir, const char *data_dir);
             if (!getenv("DS_TEST") || getenv("DS_LAUNCHER_SHOT")) {
                 [NSApplication sharedApplication]; [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+                int shown = !getenv("DS_NO_LAUNCHER");
                 int lr = ds_launcher_run(game, data);
                 if (!lr) return 0;
+                /* Play: the game in a fresh process (the choices are saved, and in the environment), this one ends. A game
+                 * window shown by the process that ran the launch window could stay off screen for good in macOS full
+                 * screen (black, the game heard but not seen; seen on the Nightly app's identifier, not on a fresh one),
+                 * while a process that never showed the launch window always comes up. */
+                if (shown && !getenv("DS_LAUNCHER_SHOT") && !getenv("DS_SAME_PROCESS")) {
+                    extern char **environ; setenv("DS_NO_LAUNCHER", "1", 1); pid_t pid;
+                    int rc = posix_spawn(&pid, argv[0], NULL, NULL, argv, environ);
+                    fprintf(stderr, "Diablo2Native: the game in a new process (%d, %s)\n", rc ? -1 : (int)pid, rc ? strerror(rc) : "started");
+                    if (rc == 0) return 0;
+                    unsetenv("DS_NO_LAUNCHER");                           /* could not: carry on here */
+                }
             }
         }
-        if (@available(macOS 12.0, *)) if (!getenv("DS_BORDERLESS") && !notch_around()) w32_screen_h -= (int)NSScreen.mainScreen.safeAreaInsets.top;   /* full screen below a notch (the launcher's Notch row) */
+        if (@available(macOS 12.0, *)) if (!borderless()) w32_screen_h -= (int)NSScreen.mainScreen.safeAreaInsets.top;   /* full screen below a notch (the launcher's Notch row) */
         {   /* Direct3D at the display's resolution (the launcher's Resolution row, D2_RESOLUTION=display): the game's 800x600
              * frame drawn that much larger by the renderer (DSR_RENDER_SCALE); a whole multiple with the game's sharp
              * textures (each texel an even block), the display's exact size with smooth ones */
@@ -676,6 +723,10 @@ int main(int argc, char **argv)
 
         [NSApplication sharedApplication]; [NSApp setActivationPolicy:test_mode ? NSApplicationActivationPolicyAccessory : NSApplicationActivationPolicyRegular];
         AppDelegate *del = [AppDelegate new]; NSApp.delegate = del;
+        if (winlog()) { NSTimer *t = [NSTimer timerWithTimeInterval:1.0 repeats:YES block:^(NSTimer *tm) { (void)tm;
+                            fprintf(stderr, "win: tick active=%d key=%d occl=%d front=%s\n", NSApp.active, win.keyWindow, (int)((win.occlusionState & NSWindowOcclusionStateVisible) != 0),
+                                    NSWorkspace.sharedWorkspace.frontmostApplication.localizedName.UTF8String); }];
+                        [[NSRunLoop mainRunLoop] addTimer:t forMode:NSRunLoopCommonModes]; }
         NSMenu *bar = [NSMenu new], *appm = [NSMenu new]; NSMenuItem *it = [NSMenuItem new]; it.submenu = appm; [bar addItem:it];
         [appm addItemWithTitle:@"Quit Diablo II" action:@selector(terminate:) keyEquivalent:@"q"]; NSApp.mainMenu = bar;
 
@@ -700,6 +751,11 @@ int main(int argc, char **argv)
         pthread_create(&t, &a, render_thread, 0);
         pthread_attr_setstacksize(&a, 256u << 20);
         pthread_create(&t, &a, game_thread, 0); game_pt = t;
+        if (winlog()) [[NSNotificationCenter defaultCenter] addObserverForName:nil object:nil queue:nil usingBlock:^(NSNotification *n) {
+            if ([n.object isKindOfClass:NSWindow.class] && [n.name hasPrefix:@"NSWindow"] && ![n.name containsString:@"Update"])
+                fprintf(stderr, "win: %s %s visible=%d onActiveSpace=%d frame=%s\n", n.name.UTF8String, ((NSWindow *)n.object).title.UTF8String,
+                        ((NSWindow *)n.object).visible, ((NSWindow *)n.object).onActiveSpace, NSStringFromRect(((NSWindow *)n.object).frame).UTF8String);
+        }];
         [NSApp run];
     }
     return 0;

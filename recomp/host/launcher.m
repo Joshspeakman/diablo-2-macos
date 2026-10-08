@@ -596,6 +596,8 @@ int ds_launcher_run(const char *game_dir, const char *data_dir)
     [[NSNotificationCenter defaultCenter] addObserverForName:NSWindowWillCloseNotification object:w queue:nil usingBlock:^(NSNotification *n) { (void)n; [NSApp stopModal]; }];
     [NSApp activateIgnoringOtherApps:YES];
     [w makeKeyAndOrderFront:nil];
+    if (getenv("DS_LAUNCHER_AUTOPLAY"))   /* testing: Play after a moment, as if clicked */
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1500 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{ if (v.onPlay) v.onPlay(); });
     [NSApp runModalForWindow:w];
     [w orderOut:nil];
     if (!result) return 0;

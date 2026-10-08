@@ -110,20 +110,26 @@ IMPL(user32, DestroyWindow)
     if (active_hwnd == w->hwnd) active_hwnd = 0;
     w->hwnd = 0; RET(1, 1);
 }
-IMPL(user32, ShowWindow)
+/* ShowWindow's work; also SC_RESTORE (WM_SYSCOMMAND, which the host posts when the app becomes active again) */
+static uint32_t show_window(Ctx *c, Win *w, uint32_t cmd)
 {
-    Win *w = W(ARG(0)); uint32_t cmd = ARG(1); if (!w) RET(0, 2);
+    { static int lg = -1; if (lg < 0) lg = getenv("DS_WINLOG") != 0; if (lg) fprintf(stderr, "user32: ShowWindow %08x cmd %u\n", w->hwnd, cmd); }
     int was = w->visible;
     w->visible = cmd != 0; w->iconic = cmd == 2 || cmd == 6 || cmd == 7;
     if (w->visible != was) send(c, w->hwnd, WM_SHOWWINDOW, (uint32_t)w->visible, 0);
-    if (w->visible && !w->parent && (cmd == 1 || cmd == 5 || cmd == 3 || cmd == 10)) {
+    if (w->visible && !w->parent && (cmd == 1 || cmd == 5 || cmd == 3 || cmd == 9 || cmd == 10)) {
         active_hwnd = focus_hwnd = w->hwnd;
         send(c, w->hwnd, WM_ACTIVATEAPP, 1, 0); send(c, w->hwnd, WM_ACTIVATE, 1, 0); send(c, w->hwnd, WM_SETFOCUS, 0, 0);
         send(c, w->hwnd, WM_SIZE, 0, ((uint32_t)w->h << 16) | (uint32_t)(w->w & 0xffff));
         w->invalid = 1;
     }
     if (w32_host_window_changed && !w->parent) w32_host_window_changed(w->hwnd, w->x, w->y, w->w, w->h, w->visible);
-    RET(was, 2);
+    return (uint32_t)was;
+}
+IMPL(user32, ShowWindow)
+{
+    Win *w = W(ARG(0)); uint32_t cmd = ARG(1); if (!w) RET(0, 2);
+    RET(show_window(c, w, cmd), 2);
 }
 IMPL(user32, UpdateWindow) { Win *w = W(ARG(0)); if (w && w->invalid) { w->invalid = 0; send(c, w->hwnd, WM_PAINT, 0, 0); } RET(w != 0, 1); }
 IMPL(user32, InvalidateRect) { Win *w = W(ARG(0)); if (w) w->invalid = 1; RET(1, 3); }
@@ -230,6 +236,12 @@ IMPL(user32, DefWindowProcA)
     case WM_NCHITTEST: RET(1, 4);
     case WM_NCACTIVATE: RET(1, 4);
     case WM_PAINT: { Win *w = W(hwnd); if (w) w->invalid = 0; RET(0, 4); }
+    case 0x112: {   /* WM_SYSCOMMAND SC_RESTORE: a window the game minimized when it lost the focus (Diablo II in full screen)
+                     * comes back, as clicking it in the taskbar does on Windows; without it the game waits for that forever */
+        Win *w = W(hwnd);
+        if (w && (ARG(2) & 0xfff0) == 0xf120 && w->iconic) show_window(c, w, 9);
+        RET(0, 4);
+    }
     }
     RET(0, 4);
 }
