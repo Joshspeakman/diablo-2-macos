@@ -141,8 +141,21 @@ cat > "$A/Contents/Info.plist" <<PLIST
   <key>NSLocalNetworkUsageDescription</key><string>Diablo II hosts and joins TCP/IP games on your local network.</string>
 </dict></plist>
 PLIST
+# the launch window's art: the main menu's backdrop and logo, decoded from the player's own archives
+"$HERE/recomp/.venv/bin/python" "$HERE/recomp/tools/d2art.py" "$GAME" "$DATA/art" >/dev/null 2>&1 \
+  && echo "== the launch window's art: from your game's archives" || echo "   (the launch window's art couldn't be read; it shows a plain title)"
+# the icon: that logo on the backdrop (tools/d2_icon.m; Nightly with its band), every size macOS asks for. The game's
+# own icon is a 32x32, 16-colour one, too small for the Dock: only if the art couldn't be read
 I="$(mktemp -d)"
-if python3 "$HERE/recomp/tools/extract_icon.py" "$EXE" "$I/ds.ico" 2>/dev/null && sips -s format png "$I/ds.ico" --out "$I/ds.png" >/dev/null 2>&1; then
+if [ -f "$DATA/art/logo.png" ] && clang -fobjc-arc -framework AppKit "$HERE/recomp/tools/d2_icon.m" -o "$I/d2_icon" 2>/dev/null \
+   && "$I/d2_icon" "$DATA/art/logo.png" "$DATA/art/backdrop.png" "$I/icon.png" $( [ -n "$AS_NIGHTLY" ] && echo --nightly ); then
+  mkdir -p "$I/icon.iconset"
+  for n in 16 32 128 256 512; do
+    sips -z $n $n "$I/icon.png" --out "$I/icon.iconset/icon_${n}x${n}.png" >/dev/null
+    sips -z $((2 * n)) $((2 * n)) "$I/icon.png" --out "$I/icon.iconset/icon_${n}x${n}@2x.png" >/dev/null
+  done
+  iconutil -c icns "$I/icon.iconset" -o "$A/Contents/Resources/icon.icns" 2>/dev/null || sips -s format icns "$I/icon.png" --out "$A/Contents/Resources/icon.icns" >/dev/null 2>&1 || true
+elif python3 "$HERE/recomp/tools/extract_icon.py" "$EXE" "$I/ds.ico" 2>/dev/null && sips -s format png "$I/ds.ico" --out "$I/ds.png" >/dev/null 2>&1; then
   sips -z 512 512 "$I/ds.png" --out "$I/ds512.png" >/dev/null
   if [ -n "$AS_NIGHTLY" ] && clang -fobjc-arc -framework AppKit "$HERE/recomp/tools/nightly_icon.m" -o "$I/nightly_icon" 2>/dev/null \
      && "$I/nightly_icon" "$I/ds512.png" "$I/n.png" && sips -z 512 512 "$I/n.png" --out "$I/ds512.png" >/dev/null; then :; fi   # dark tile, NIGHTLY band
@@ -151,7 +164,5 @@ fi
 rm -rf "$I"
 codesign --force --deep --sign - "$A" >/dev/null 2>&1 || true
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$A" 2>/dev/null || true
-# the launch window's art: the main menu's backdrop and logo, decoded from the player's own archives
-"$HERE/recomp/.venv/bin/python" "$HERE/recomp/tools/d2art.py" "$GAME" "$DATA/art" >/dev/null 2>&1 \
-  && echo "== the launch window's art: from your game's archives" || echo "   (the launch window's art couldn't be read; it shows a plain title)"
+touch "$A"                                                    # Finder and the Dock pick up the new icon
 echo "== done: $A (data in $DATA)"

@@ -5,7 +5,7 @@ run on Metal and Core Audio, the way [dungeon-siege-macos](https://github.com/Jo
 dungeon-siege-2-macos do for the Dungeon Siege games. No Wine, no Rosetta, no emulator. Nothing from the game is in
 this repository: the build regenerates everything locally from your copy, and the game folder is only read.
 
-**State: Beta 2.** The game is playable natively:
+**State: Beta 1** (the first release). The game is playable natively:
 
 - the Blizzard intro and the cinematics (Bink, with sound), the title, the menus;
 - single player: new characters of every class, all five acts (their towns and waypoints), every class's skills, the
@@ -60,7 +60,9 @@ git clone <this repository> && cd diablo-2-macos
 This checks the game's `Game.exe` (1.14d), recompiles it with the game's Bink, Smacker and JPEG libraries (about two
 minutes), and installs **Diablo II Native** in `~/Applications`. Settings, characters and logs live in
 `~/Games/Diablo2Native` (characters in `drive_c/Users/player/Saved Games/Diablo II`, as on Windows; copy `.d2s` files
-there to bring characters over). The game runs in macOS full screen with Game Mode on.
+there to bring characters over). The game runs in macOS full screen with Game Mode on; with Notch → Around the Notch
+it is a borderless window over the whole display instead (macOS full screen always keeps a picture below the camera).
+The app's icon is drawn at install from the same art as the launch window (`recomp/tools/d2_icon.m`).
 
 The launch window (in the game's own look: the main menu's backdrop and logo, decoded from your archives at install)
 has:
@@ -74,7 +76,7 @@ has:
 | Direct3D → Frame Rate | **Original** (25, as the game draws) · 60 · 120 · Display (its refresh rate): movement blended between the game's ticks |
 | Direct3D → Width | **Original** (4:3) · Display (the display's shape at the same height: more of the world to the sides; others in multiplayer see less) |
 | Display → Scaling | **Sharp** (square pixels, smoothed only at their edges) · Smooth (bilinear) · Pixel (nearest) · CRT (sharp with scanlines) |
-| Display → Notch | Hide the Notch (the picture below the camera) · Around the Notch |
+| Display → Notch | Hide the Notch (the picture below the camera, in macOS full screen) · Around the Notch (the whole display, the camera over the picture's top centre) |
 | Updates | rebuilds the app from the newest commit of its branch, from your own copy |
 
 The game's own options (gamma, contrast, sound and music volume, light quality, ...) are in its Options menu and are
@@ -183,6 +185,10 @@ Environment for development:
 - testing: `DS_TEST=1` (background window, no launch window), `DS_CMDFILE=<file>` (scripted clicks, keys, typing and
   screenshots), `W32_BURST_DIR=<dir>` (12 consecutive frames when `<dir>/go` appears), `W32_AUDIO_DUMP=<file.wav>`,
   `DSR_RENDER_SCALE=<1-4>`;
-- logs: `W32_DDLOG=1`, `W32_REGLOG=1`, `W32_NETLOG=1`, `W32_SEHLOG=1`, `W32_TRACE=<file>`.
+- logs: `W32_DDLOG=1`, `W32_REGLOG=1`, `W32_NETLOG=1`, `W32_SEHLOG=1`, `W32_TRACE=<file>`, `DS_WINLOG=1` (the game
+  window: shown and hidden, full screen, activation, and whether it is really on screen);
+- the launch window: `DS_LAUNCHER_AUTOPLAY=1` presses Play (tests); Play starts the game in a fresh process (a game
+  window shown by the process that ran the launch window could stay off screen in full screen), `DS_SAME_PROCESS=1`
+  keeps it in the same one.
 
 Notices and credits: [NOTICE.md](NOTICE.md).
