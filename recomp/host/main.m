@@ -9,6 +9,7 @@
 #define DS_BUILD "dev"
 #endif
 #include <spawn.h>
+#include <arpa/inet.h>
 #include <pthread.h>
 #include <dlfcn.h>
 #include <mach/mach.h>
@@ -570,6 +571,104 @@ static void type_text(NSString *text)
     }
 }
 
+// ---------------------------------------------------------------- the game list (Battle.net's stand-in, runtime/win32/d2net.c)
+/* When the game's Join Game box opens, a list of the games found (on the DHT game list, the local network and this Mac)
+ * comes up over it. Join types the chosen game's address into the box and confirms it, as a player would; Enter an
+ * Address leaves the box to the player. D2_GAMELIST_AUTO=1 (test mode) joins the first game listed by itself. */
+@interface GameListPanel : NSObject <NSTableViewDataSource, NSTableViewDelegate>
+@property NSPanel *panel; @property NSTableView *table; @property NSTextField *status; @property NSButton *join;
+@property NSArray<NSValue *> *rows; @property NSTimer *timer;
+@end
+static GameListPanel *game_list;
+static NSString *gl_where(const D2NetGame *g)
+{
+    uint32_t ip = ntohl(g->ip); char a[32]; struct in_addr ia = {g->ip}; inet_ntop(AF_INET, &ia, a, sizeof a);
+    return (ip >> 24) == 127 ? @"This Mac" : g->local ? [NSString stringWithFormat:@"Local network (%s)", a] : [NSString stringWithFormat:@"Internet (%s)", a];
+}
+@implementation GameListPanel
+- (NSInteger)numberOfRowsInTableView:(NSTableView *)t { (void)t; return (NSInteger)self.rows.count; }
+- (id)tableView:(NSTableView *)t objectValueForTableColumn:(NSTableColumn *)col row:(NSInteger)r
+{
+    (void)t; D2NetGame g; [self.rows[(NSUInteger)r] getValue:&g];
+    static NSString *const cls[] = {@"Amazon", @"Sorceress", @"Necromancer", @"Paladin", @"Barbarian", @"Druid", @"Assassin"};
+    static NSString *const diff[] = {@"Normal", @"Nightmare", @"Hell"};
+    NSString *k = col.identifier;
+    if ([k isEqualToString:@"name"]) return g.name[0] ? @(g.name) : @"Diablo II game";
+    if ([k isEqualToString:@"hero"]) return g.level ? [NSString stringWithFormat:@"%@, level %d", cls[g.cls % 7], g.level] : @"";
+    if ([k isEqualToString:@"diff"]) return g.level ? diff[g.difficulty % 3] : @"";
+    if ([k isEqualToString:@"players"]) return [NSString stringWithFormat:@"%d / %d", g.players ? g.players : 1, g.max ? g.max : 8];
+    return gl_where(&g);
+}
+- (void)tableViewSelectionDidChange:(NSNotification *)n { (void)n; self.join.enabled = self.table.selectedRow >= 0; }
+- (void)refresh
+{
+    D2NetGame g[64]; int n = d2net_games(g, 64); NSMutableArray *a = [NSMutableArray array];
+    for (int k = 0; k < n; k++) [a addObject:[NSValue valueWithBytes:&g[k] objCType:@encode(D2NetGame)]];
+    uint32_t sel = 0; if (self.table.selectedRow >= 0 && self.table.selectedRow < (NSInteger)self.rows.count) { D2NetGame s; [self.rows[(NSUInteger)self.table.selectedRow] getValue:&s]; sel = s.ip; }
+    self.rows = a; [self.table reloadData];
+    for (NSUInteger k = 0; k < a.count; k++) { D2NetGame s; [a[k] getValue:&s]; if (s.ip == sel) [self.table selectRowIndexes:[NSIndexSet indexSetWithIndex:k] byExtendingSelection:NO]; }
+    if (self.table.selectedRow < 0 && a.count) [self.table selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
+    self.join.enabled = self.table.selectedRow >= 0;
+    const char *grp = getenv("D2_P2P_GROUP");
+    self.status.stringValue = n ? [NSString stringWithFormat:@"%d game%@ found%@", n, n == 1 ? @"" : @"s", grp && *grp ? @" in your group" : @""]
+                                : [NSString stringWithFormat:@"Looking for games%@… a hosted game shows up here within a few seconds.", grp && *grp ? @" in your group" : @""];
+    if (n && test_mode && getenv("D2_GAMELIST_AUTO")) [self joinClicked:nil];
+}
+- (void)closeKeepingBox
+{
+    [self.timer invalidate]; self.timer = nil; [self.panel orderOut:nil]; d2net_search(0);
+    [win makeKeyAndOrderFront:nil]; if (!lab_mode) capture(1);
+}
+- (void)joinClicked:(id)sender
+{
+    (void)sender; NSInteger r = self.table.selectedRow; if (r < 0 || r >= (NSInteger)self.rows.count) return;
+    D2NetGame g; [self.rows[(NSUInteger)r] getValue:&g]; struct in_addr ia = {g.ip}; char a[32]; inet_ntop(AF_INET, &ia, a, sizeof a);
+    fprintf(stderr, "d2net: joining %s (%s)\n", a, g.name);
+    [self closeKeepingBox];
+    /* the box's own text: cleared, then the address and Enter, as typed */
+    NSString *keys = [@"{bs}{bs}{bs}{bs}{bs}{bs}{bs}{bs}{bs}{bs}{bs}{bs}{bs}{bs}{bs}{bs}" stringByAppendingFormat:@"%s{enter}", a];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 150 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{ type_text(keys); });
+}
+- (void)addressClicked:(id)sender { (void)sender; [self closeKeepingBox]; }
+- (void)show
+{
+    if (!self.panel) {
+        NSPanel *p = [[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 640, 380) styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskUtilityWindow
+                                                 backing:NSBackingStoreBuffered defer:NO];
+        p.title = @"Diablo II — Join a Game"; p.releasedWhenClosed = NO; p.level = NSStatusWindowLevel; p.hidesOnDeactivate = NO;
+        p.collectionBehavior = NSWindowCollectionBehaviorFullScreenAuxiliary | NSWindowCollectionBehaviorCanJoinAllSpaces;
+        p.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+        NSView *cv = p.contentView;
+        NSTextField *head = [NSTextField labelWithString:@"Games hosted by other players (no Battle.net needed)"]; head.font = [NSFont boldSystemFontOfSize:13];
+        head.frame = NSMakeRect(16, 346, 600, 20); [cv addSubview:head];
+        NSScrollView *sc = [[NSScrollView alloc] initWithFrame:NSMakeRect(16, 72, 608, 266)]; sc.hasVerticalScroller = YES; sc.borderType = NSBezelBorder;
+        NSTableView *t = [[NSTableView alloc] initWithFrame:sc.bounds]; t.usesAlternatingRowBackgroundColors = YES; t.allowsEmptySelection = YES;
+        struct { NSString *id, *title; CGFloat w; } cols[] = {{@"name", @"Host", 130}, {@"hero", @"Character", 150}, {@"diff", @"Difficulty", 80}, {@"players", @"Players", 60}, {@"where", @"Where", 170}};
+        for (size_t k = 0; k < 5; k++) { NSTableColumn *c = [[NSTableColumn alloc] initWithIdentifier:cols[k].id]; c.title = cols[k].title; c.width = cols[k].w; [t addTableColumn:c]; }
+        t.dataSource = self; t.delegate = self; t.target = self; t.doubleAction = @selector(joinClicked:);
+        sc.documentView = t; [cv addSubview:sc];
+        NSTextField *st = [NSTextField labelWithString:@""]; st.frame = NSMakeRect(16, 44, 608, 18); st.textColor = NSColor.secondaryLabelColor; [cv addSubview:st];
+        NSButton *j = [NSButton buttonWithTitle:@"Join" target:self action:@selector(joinClicked:)]; j.keyEquivalent = @"\r"; j.frame = NSMakeRect(524, 8, 100, 32); [cv addSubview:j];
+        NSButton *ad = [NSButton buttonWithTitle:@"Enter an Address" target:self action:@selector(addressClicked:)]; ad.keyEquivalent = @"\x1b"; ad.frame = NSMakeRect(370, 8, 150, 32); [cv addSubview:ad];
+        self.panel = p; self.table = t; self.status = st; self.join = j;
+    }
+    d2net_search(1); self.rows = @[]; [self.table reloadData];
+    capture(0);
+    [self.panel center]; [NSApp activateIgnoringOtherApps:YES]; [self.panel makeKeyAndOrderFront:nil];
+    [self refresh];
+    self.timer = [NSTimer scheduledTimerWithTimeInterval:0.5 target:self selector:@selector(refresh) userInfo:nil repeats:YES];
+}
+@end
+/* the runtime's word that the Join Game box opened (1) or closed (0) (d2net.c, from the game's hook) */
+static void game_list_open(int open)
+{
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (!game_list) game_list = [GameListPanel new];
+        if (open && !game_list.panel.visible) [game_list show];
+        else if (!open && game_list.panel.visible) [game_list closeKeepingBox];
+    });
+}
+
 @interface AppDelegate : NSObject <NSApplicationDelegate> @end
 @implementation AppDelegate
 - (void)applicationDidBecomeActive:(NSNotification *)n { (void)n; if (winlog()) fprintf(stderr, "win: app active\n"); if (win.visible && !lab_mode) capture(1); post(0x1c, 1, 0);
@@ -747,8 +846,9 @@ int main(int argc, char **argv)
         void *m = mmap(0, DSR_SHM_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
         H = m; ring = (uint8_t *)m + DSR_HEADER_SIZE; H->magic = DSR_SHM_MAGIC; H->version = 1;
         dsr_attach_consumer(H);
-        w32_host_window_created = window_created; w32_host_window_changed = window_changed;
+        w32_host_window_created = window_created; w32_host_window_changed = window_changed; w32_host_game_list = game_list_open;
         if (w32_prepare(exe, game, drive_c, overlay)) { fprintf(stderr, "Diablo2Native: cannot load %s\n", exe); return 1; }
+        d2net_start();                                                /* Internet games: learn the public address (runtime/win32/d2net.c) */
         if (!test_mode) report_from_last_session(data);
         [NSTimer scheduledTimerWithTimeInterval:0.5 repeats:YES block:^(NSTimer *tm) { (void)tm; w32_crash_heartbeat(2); }];   /* UI thread alive */
         if (test_mode && getenv("DS_CRASHTEST") && !strncmp(getenv("DS_CRASHTEST"), "uihang", 6))

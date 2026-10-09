@@ -14,7 +14,7 @@ class Game:
             for f in saves: open(os.path.join(sg, os.path.basename(f)), 'wb').write(open(f, 'rb').read())
         self.cmd = os.path.join(self.dir, 'cmd.txt'); open(self.cmd, 'w').close(); open(os.path.join(self.dir, 'peek.txt'), 'w').close()
         self.log = os.path.join(self.dir, 'run.log'); self.wav = os.path.join(self.dir, 'mix.wav'); self.shots = 0
-        e = dict(os.environ, DS_TEST='1', W32_AUDIO_MUTE='1', DS_CMDFILE=self.cmd, DS_PEEKFILE=os.path.join(self.dir, 'peek.txt'),
+        e = dict(os.environ, DS_TEST='1', W32_AUDIO_MUTE='1', DS_NO_PORTMAP='1', D2_NO_P2P='1', DS_CMDFILE=self.cmd, DS_PEEKFILE=os.path.join(self.dir, 'peek.txt'),
                  W32_AUDIO_DUMP=self.wav, DS_ARGS='')
         e.update(env or {})
         self.p = subprocess.Popen([CONFIG['app'], '--exe', CONFIG['exe'], '--game', CONFIG['game'], '--data', self.dir], stdout=open(self.log, 'w'),

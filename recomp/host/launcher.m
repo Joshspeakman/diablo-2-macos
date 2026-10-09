@@ -64,8 +64,8 @@ enum { BANNER_H = 252, TOP_Y = 270 };
 - (NSRect)valueRect:(NSInteger)k { NSRect r = [self rowRect:k]; return NSMakeRect(NSMaxX(r) - 300, r.origin.y + 9, 262, 30); }
 - (NSRect)sectionRect:(NSInteger)i
 {
-    NSInteger n = (NSInteger)self.sections.count, per = n == 3 ? 3 : 2, line = i / per, inLine = MIN(per, n - line * per), col = i % per;
-    CGFloat w = per == 3 ? 220 : 290, g = per == 3 ? 20 : 28, x0 = (self.bounds.size.width - (inLine * w + (inLine - 1) * g)) / 2;
+    NSInteger n = (NSInteger)self.sections.count, per = n >= 3 && n <= 4 ? n : 2, line = i / per, inLine = MIN(per, n - line * per), col = i % per;
+    CGFloat w = per == 4 ? 166 : per == 3 ? 220 : 290, g = per == 4 ? 14 : per == 3 ? 20 : 28, x0 = (self.bounds.size.width - (inLine * w + (inLine - 1) * g)) / 2;
     return NSMakeRect(x0 + col * (w + g), TOP_Y + 74 * self.top.count + 44 + line * 100, w, 58);
 }
 - (NSRect)playRect { NSRect b = self.bounds; return NSMakeRect(NSMidX(b) + 12, b.size.height - 84, 220, 56); }
@@ -376,6 +376,35 @@ static NSArray<NSDictionary *> *zoom_choices(void)
              @{@"value": @"1.5", @"label": @"Wheel or Pinch, 1.5×", @"note": @"Scroll or pinch to see more of the world, up to 1.5×"},
              @{@"value": @"2", @"label": @"Wheel or Pinch, 2×", @"note": @"Up to twice as far; heavier on the GPU"}];
 }
+/* Multiplayer (runtime/win32/d2net.c): the game's own TCP/IP with the serverless game list (Internet), or as it was
+ * (LAN: the address typed in; no list, DHT or router); a private group name; the router */
+static NSArray<NSDictionary *> *mp_choices(void)
+{
+    return @[@{@"value": @"internet", @"label": @"Internet (Game List)", @"note": @"Join from a list of hosted games; Battle.net leads here"},
+             @{@"value": @"lan", @"label": @"LAN (Classic)", @"note": @"The game's own TCP/IP: type the host's address"}];
+}
+static NSArray<NSDictionary *> *group_choice(NSString *g)
+{
+    return @[@{@"value": g ?: @"", @"label": g.length ? [NSString stringWithFormat:@"Private: %@", g] : @"Public",
+               @"note": g.length ? @"Only copies with this group name see your games · press to change" : @"Anyone can see your hosted games · press to set a group name"}];
+}
+static NSArray<NSDictionary *> *router_choices(void)
+{
+    return @[@{@"value": @"on", @"label": @"Open Port When Hosting", @"note": @"Asks your router (UPnP / NAT-PMP) for TCP and UDP 4000"},
+             @{@"value": @"off", @"label": @"Leave Router Alone", @"note": @"Forward TCP and UDP 4000 yourself to host online"}];
+}
+/* the group name entry; returns the new name, or nil if cancelled */
+static NSString *group_panel(NSString *current)
+{
+    NSAlert *a = [NSAlert new];
+    a.messageText = @"Game List Group";
+    a.informativeText = @"A name your own copies share, like a password: only copies with the same group name find each other's games. "
+                         "Use the same one on each Mac. Leave it empty for the public list.";
+    NSTextField *f = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 300, 24)]; f.stringValue = current ?: @""; f.placeholderString = @"e.g. a phrase only you know";
+    a.accessoryView = f; [a addButtonWithTitle:@"Save"]; [a addButtonWithTitle:@"Cancel"]; a.window.initialFirstResponder = f;
+    if ([a runModal] != NSAlertFirstButtonReturn) return nil;
+    return [f.stringValue stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+}
 static NSInteger index_of(NSArray<NSDictionary *> *c, NSString *v, NSInteger dflt)
 {
     for (NSUInteger k = 0; k < c.count; k++) if ([c[k][@"value"] isEqualToString:v ?: @""]) return (NSInteger)k;
@@ -393,6 +422,9 @@ static void apply(NSDictionary<NSString *, NSString *> *v)
     if (d3d && ![v[@"fps"] isEqualToString:@"25"]) setenv("D2_FPS", v[@"fps"].UTF8String, 1); else unsetenv("D2_FPS");
     if (d3d && ![v[@"width"] isEqualToString:@"800"]) setenv("D2_WIDTH", v[@"width"].UTF8String, 1); else unsetenv("D2_WIDTH");
     if (d3d && v[@"zoom"] && ![v[@"zoom"] isEqualToString:@"1"]) setenv("D2_ZOOM_MAX", v[@"zoom"].UTF8String, 1); else unsetenv("D2_ZOOM_MAX");
+    setenv("D2_MULTIPLAYER", (v[@"multiplayer"] ?: @"internet").UTF8String, 1);
+    if (v[@"group"].length) setenv("D2_P2P_GROUP", v[@"group"].UTF8String, 1); else unsetenv("D2_P2P_GROUP");
+    if ([v[@"multiplayer"] isEqualToString:@"lan"] || [v[@"router"] isEqualToString:@"off"]) setenv("DS_NO_PORTMAP", "1", 1);
     setenv("DSR_FILTER", v[@"scaling"].UTF8String, 1);
     setenv("DS_NOTCH", v[@"notch"].UTF8String, 1);
 }
@@ -524,8 +556,12 @@ int ds_launcher_run(const char *game_dir, const char *data_dir)
     DSRow *fpsr = [DSRow new]; fpsr.title = @"Frame Rate"; fpsr.choices = fps_choices(); fpsr.index = index_of(fpsr.choices, saved[@"fps"] ?: @"display", 0);
     DSRow *widr = [DSRow new]; widr.title = @"Width"; widr.choices = width_choices(); widr.index = index_of(widr.choices, saved[@"width"] ?: @"display", 0);
     DSRow *zoomr = [DSRow new]; zoomr.title = @"Zoom"; zoomr.choices = zoom_choices(); zoomr.index = index_of(zoomr.choices, saved[@"zoom"] ?: @"2", 0);
+    DSRow *mp = [DSRow new]; mp.title = @"Type"; mp.choices = mp_choices(); mp.index = index_of(mp.choices, saved[@"multiplayer"] ?: @"internet", 0);
+    DSRow *grp = [DSRow new]; grp.title = @"Group"; grp.choices = group_choice(saved[@"group"]);
+    DSRow *rtr = [DSRow new]; rtr.title = @"Router"; rtr.choices = router_choices(); rtr.index = index_of(rtr.choices, saved[@"router"] ?: @"on", 0);
+    __weak DSRow *wg = grp; grp.activate = ^{ NSString *g = group_panel(wg.choices[0][@"value"]); if (g) wg.choices = group_choice(g); };
     NSDictionary<NSString *, DSRow *> *rows = @{@"video": video, @"view": view, @"resolution": res, @"textures": texr, @"fps": fpsr, @"width": widr, @"zoom": zoomr,
-                                                @"scaling": scale, @"notch": notch};
+                                                @"scaling": scale, @"notch": notch, @"multiplayer": mp, @"group": grp, @"router": rtr};
     const char *shot = getenv("DS_LAUNCHER_SHOT");
     if (getenv("DS_NO_LAUNCHER") && !shot) {
         if (saved.count) apply(chosen(rows));
@@ -539,7 +575,14 @@ int ds_launcher_run(const char *game_dir, const char *data_dir)
     __block int ustate = updater ? UPD_CHECKING : UPD_NONE; __block NSString *latest = nil;
     upd.choices = update_choice(ustate, branch, built, nil);
     BOOL shotMode = shot != NULL;
-    DSSection *display = [DSSection new], *d3dSec = [DSSection new], *updSec = [DSSection new];
+    DSSection *display = [DSSection new], *d3dSec = [DSSection new], *updSec = [DSSection new], *mpSec = [DSSection new];
+    mpSec.title = @"Multiplayer"; mpSec.rows = @[mp, grp, rtr];
+    __weak DSRow *wmp = mp, *wrtr = rtr;
+    mpSec.summary = ^NSString * {
+        if ([wmp.choices[wmp.index][@"value"] isEqualToString:@"lan"]) return @"LAN (Classic): type the host's address";
+        NSString *g = wg.choices[0][@"value"];
+        return [NSString stringWithFormat:@"Internet game list · %@ · %@", g.length ? @"Private group" : @"Public", wrtr.index ? @"Router left alone" : @"Port opened when hosting"];
+    };
     d3dSec.title = @"Direct3D"; d3dSec.rows = @[view, res, texr, fpsr, widr, zoomr];
     __weak DSRow *wvid = video, *wview = view;
     __weak DSRow *wres = res, *wtex = texr, *wfps = fpsr, *wwid = widr, *wzoom = zoomr;
@@ -552,7 +595,7 @@ int ds_launcher_run(const char *game_dir, const char *data_dir)
     display.title = @"Display"; display.rows = notch_height() > 0 ? @[scale, notch] : @[scale];
     updSec.title = @"Updates"; updSec.summary = ^NSString * { NSDictionary *c = upd.choices[upd.index]; return [c[@"note"] length] ? [NSString stringWithFormat:@"%@ · %@", c[@"label"], c[@"note"]] : c[@"label"]; };
     DSLaunchView *v = [[DSLaunchView alloc] initWithFrame:NSMakeRect(0, 0, 780, 620)];
-    v.top = @[video]; v.sections = @[display, d3dSec, updSec]; v.open = -1; v.hover = v.pressed = HIT_NONE;
+    v.top = @[video]; v.sections = @[display, d3dSec, mpSec, updSec]; v.open = -1; v.hover = v.pressed = HIT_NONE;
     __weak DSLaunchView *wv = v; __weak DSRow *wu = upd;
     updSec.activate = ^{ if (wu.activate) wu.activate(); };
     void (^check)(void) = ^{

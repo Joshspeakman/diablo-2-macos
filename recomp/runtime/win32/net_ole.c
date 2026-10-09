@@ -51,12 +51,8 @@ IMPL(wsock32, ord52)
             freeifaddrs(ifs);
         }
         if (!n) addrs[n++] = htonl(INADDR_LOOPBACK);
-        uint32_t portmap_public_ip(void);   /* the router's public address too: only when asked (W32_PORTMAP=1, internet games) */
-        uint32_t pub = getenv("W32_PORTMAP") && !getenv("DS_NO_PORTMAP") ? portmap_public_ip() : 0;
-        int dup = 0; for (int i = 0; i < n; i++) if (addrs[i] == pub) dup = 1;
-        /* the LAN addresses first: the game gives the first one out in its LAN lobby's discovery packets and connects
-         * to its own lobby server there (the router's public address, first before, was unreachable from the LAN) */
-        if (pub && !dup && n < 16) addrs[n++] = pub;
+        /* this Mac's own addresses only: the game hosts on (and decides it is the server by) the first one. The TCP/IP
+         * screen's "Your IP Address" shows the public address in Internet games through inet_ntoa (winsock.c). */
     } else {
         struct addrinfo hint = {0}, *res = 0; hint.ai_family = AF_INET; char alt[300]; const char *q = lobby_rewrite(name, alt, sizeof alt);
         if (getaddrinfo(q ? q : name, 0, &hint, &res)) RET(0, 1);
