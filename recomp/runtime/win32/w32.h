@@ -81,4 +81,13 @@ extern void (*w32_callback_hook)(Ctx *c, uint32_t fn);   /* harness: run the gue
 
 /* tracing (harness) */
 void w32_trace_import(Ctx *c, uint32_t index);
+/* the serverless game list (d2net.c) */
+typedef struct { uint32_t ip; uint16_t port; int players, max, difficulty, cls, level, local; char name[17]; double seen; } D2NetGame;
+void d2net_hosting(int on, uint16_t port);   /* the game listens on / closes its TCP game port (winsock.c) */
+void d2net_search(int on);                   /* look for games (the Join Game screen) */
+int d2net_games(D2NetGame *out, int cap);    /* the games found so far */
+void d2net_start(void);                      /* at start (Internet): learn the public address */
+uint32_t d2net_public_ip(void);              /* this Mac's public address (Internet), network order; 0 if not known */
+void d2net_join_screen(int open);            /* the game's Join Game box opened / closed (its hook): the list, if on */
+extern void (*w32_host_game_list)(int open); /* host: show or hide the game list over the game */
 #endif

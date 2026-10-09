@@ -84,9 +84,11 @@ IMPL(wsock32, ord23)                                    /* socket(af, type, prot
     if (k == MAXS) { close(fd); w32_set_last_error(c, 10024); RET(INVALID_SOCKET_, 3); }
     RET(SBASE + (uint32_t)k, 3);
 }
+static uint32_t game_listener;                          /* the socket the hosted game listens on (d2net.c) */
 IMPL(wsock32, ord3)                                     /* closesocket(s) */
 {
     SOCK(ARG(0), 1);
+    if (ARG(0) == game_listener) { game_listener = 0; d2net_hosting(0, 4000); }   /* the hosted game has ended */
     pthread_mutex_lock(&s_lock); S[ARG(0) - SBASE].fd = 0; pthread_mutex_unlock(&s_lock);
     close(fd); RET(0, 1);
 }
@@ -106,13 +108,24 @@ static int own_address(struct in_addr ia)
         if (i->ifa_addr && i->ifa_addr->sa_family == AF_INET && ((struct sockaddr_in *)i->ifa_addr)->sin_addr.s_addr == ia.s_addr) own = 1;
     freeifaddrs(ifs); return own;
 }
+/* the first of this Mac's addresses, as gethostbyname gives it first (net_ole.c) */
+static uint32_t primary_address(void)
+{
+    struct ifaddrs *ifs = 0; uint32_t r = 0;
+    if (getifaddrs(&ifs)) return 0;
+    for (struct ifaddrs *i = ifs; i && !r; i = i->ifa_next)
+        if (i->ifa_addr && i->ifa_addr->sa_family == AF_INET && (i->ifa_flags & IFF_UP) && !(i->ifa_flags & IFF_LOOPBACK))
+            r = ((struct sockaddr_in *)i->ifa_addr)->sin_addr.s_addr;
+    freeifaddrs(ifs); return r;
+}
 IMPL(wsock32, ord4)                                     /* connect(s, addr, len) */
 {
     SOCK(ARG(0), 3); struct sockaddr_in a; if (!to_host(ARG(1), ARG(2), &a)) RET(fail(c, 10014), 3);
     /* A connection to this Mac's own LAN address (Diablo II's host joins the game it serves that way) goes through
      * loopback: the same machine, and macOS's Local Network privacy, which can hold a connection to the LAN address
      * until the user allows it, never applies to it. */
-    if (a.sin_addr.s_addr != htonl(INADDR_LOOPBACK) && own_address(a.sin_addr)) a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    if (a.sin_addr.s_addr != htonl(INADDR_LOOPBACK) && (own_address(a.sin_addr) || (a.sin_addr.s_addr && a.sin_addr.s_addr == d2net_public_ip())))
+        a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);                   /* also the public address the host shows (d2net.c) */
     if (getenv("W32_NETLOG")) { char ip[32]; inet_ntop(AF_INET, &a.sin_addr, ip, sizeof ip); fprintf(stderr, "net: connect %x to %s:%u (fd %d)\n", ARG(0), ip, ntohs(a.sin_port), fd); }
     if (connect(fd, (struct sockaddr *)&a, sizeof a)) RET(fail_errno(c), 3);
     RET(0, 3);
@@ -122,6 +135,10 @@ IMPL(wsock32, ord13)                                    /* listen(s, backlog) */
     SOCK(ARG(0), 2);
     if (getenv("W32_NETLOG")) fprintf(stderr, "net: listen %x backlog %u (fd %d)\n", ARG(0), ARG(1), fd);
     if (listen(fd, (int)ARG(1))) RET(fail_errno(c), 2);
+    {   /* the game's TCP port: a hosted game, for the game list (d2net.c) */
+        struct sockaddr_in a; socklen_t l = sizeof a;
+        if (!getsockname(fd, (struct sockaddr *)&a, &l) && ntohs(a.sin_port) == 4000) { game_listener = ARG(0); d2net_hosting(1, 4000); }
+    }
     RET(0, 2);
 }
 IMPL(wsock32, ord1)                                     /* accept(s, addr, len*) */
@@ -270,6 +287,10 @@ IMPL(wsock32, ord15) { RET(__builtin_bswap16((uint16_t)ARG(0)), 1); }  /* ntohs 
 IMPL(wsock32, ord11)                                    /* inet_ntoa(in_addr): a per-thread buffer, as on Windows */
 {
     static __thread uint32_t buf; if (!buf) buf = heap_alloc(w32_process_heap, 8, 16);
-    uint32_t a = ARG(0); snprintf((char *)GP(buf), 16, "%u.%u.%u.%u", a & 255, a >> 8 & 255, a >> 16 & 255, a >> 24);
+    uint32_t a = ARG(0);
+    /* Internet games (the launch window's Multiplayer): this Mac's main address, as the TCP/IP screen's "Your IP Address"
+     * shows it to give to players, reads as the router's public address (d2net.c); the game itself never sees it */
+    { struct in_addr ia = {a}; uint32_t pub = d2net_public_ip(); if (pub && own_address(ia) && a == primary_address()) a = pub; }
+    snprintf((char *)GP(buf), 16, "%u.%u.%u.%u", a & 255, a >> 8 & 255, a >> 16 & 255, a >> 24);
     RET(buf, 1);
 }
