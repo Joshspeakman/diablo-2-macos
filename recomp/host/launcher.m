@@ -368,13 +368,13 @@ static NSArray<NSDictionary *> *width_choices(void)
     return @[@{@"value": @"800", @"label": @"Original", @"note": @"4:3, with bars at the sides of a wider display"},
              @{@"value": @"display", @"label": @"Display", @"note": @"A wider view of the world, more than other players see"}];
 }
-/* Direct3D zoomed out (D2_ZOOM_MAX, runtime/win32/d2zoom.c): the mouse wheel shows more of the world around you, from
+/* Direct3D zoomed out (D2_ZOOM_MAX, runtime/win32/d2zoom.c): the mouse wheel (a trackpad: two-finger scroll or pinch) shows more of the world around you, from
  * the game's own view out to the farthest chosen here */
 static NSArray<NSDictionary *> *zoom_choices(void)
 {
-    return @[@{@"value": @"1", @"label": @"Off", @"note": @"The game's own view"},
-             @{@"value": @"1.5", @"label": @"Mouse Wheel, 1.5×", @"note": @"Wheel down to see more of the world, up to 1.5×"},
-             @{@"value": @"2", @"label": @"Mouse Wheel, 2×", @"note": @"Up to twice as far; heavier on the GPU"}];
+    return @[@{@"value": @"1", @"label": @"Off", @"note": @"The game's own view; the wheel and pinch do nothing"},
+             @{@"value": @"1.5", @"label": @"Wheel or Pinch, 1.5×", @"note": @"Scroll or pinch to see more of the world, up to 1.5×"},
+             @{@"value": @"2", @"label": @"Wheel or Pinch, 2×", @"note": @"Up to twice as far; heavier on the GPU"}];
 }
 static NSInteger index_of(NSArray<NSDictionary *> *c, NSString *v, NSInteger dflt)
 {
