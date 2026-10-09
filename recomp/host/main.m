@@ -16,6 +16,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <mach/mach_time.h>
+#include <mach/mach_vm.h>
 #import "../../src/renderer/renderer.h"
 #include "../../src/dsr/dsr_proto.h"
 #include "../../src/dsr/dsr_shm.h"
@@ -232,6 +233,46 @@ static void cmdfile_poll(uint32_t fno)
  * the chain to an address, then reports each change of the dword there with the lifted functions on the game thread's
  * stack; "<chain>=<hex>" writes the dword (experiments) */
 static pthread_t game_pt;
+/* "find:<text>" lists the guest addresses (readable memory below 0x80000000) holding that ASCII text, and the same
+ * text as UTF-16; "find:#<hex dword>" a dword value; "dump:<chain>,<length>" prints the bytes at a chain's address
+ * (development: locating game state) */
+static void peek_find_dump(const char *line)
+{
+    extern uint8_t *G_MEM;
+    if (!strncmp(line, "dump:", 5)) {
+        char buf[256]; snprintf(buf, sizeof buf, "%s", line + 5); char *lc = strrchr(buf, ','); if (!lc) return; *lc = 0;
+        uint32_t len = (uint32_t)strtoul(lc + 1, 0, 16); if (len > 0x1000) len = 0x1000;
+        char *e = buf; uint32_t at = (uint32_t)strtoul(e, &e, 16), v;
+        while (*e == ',' && at >= 0x10000u) { memcpy(&v, G_MEM + at, 4); at = v + (uint32_t)strtoul(e + 1, &e, 16); }
+        if (at < 0x10000u) { fprintf(stderr, "Diablo2Native: dump %s: null\n", line + 5); return; }
+        for (uint32_t o = 0; o < len; o += 16) {
+            char hex[64] = "", asc[20] = ""; int hp = 0;
+            for (uint32_t j = 0; j < 16 && o + j < len; j++) { uint8_t b = G_MEM[at + o + j]; hp += snprintf(hex + hp, sizeof hex - (size_t)hp, "%02x", b); asc[j] = b >= 32 && b < 127 ? (char)b : '.'; }
+            fprintf(stderr, "Diablo2Native: dump %08x: %-32s %s\n", at + o, hex, asc);
+        }
+        return;
+    }
+    uint8_t pat[2][128]; size_t pl[2]; int npat;
+    if (line[5] == '#') { uint32_t v = (uint32_t)strtoul(line + 6, 0, 16); memcpy(pat[0], &v, 4); pl[0] = 4; npat = 1; }
+    else {
+        size_t n = strlen(line + 5); if (n > 60) n = 60; memcpy(pat[0], line + 5, n); pl[0] = n;
+        for (size_t k = 0; k < n; k++) { pat[1][2 * k] = (uint8_t)line[5 + k]; pat[1][2 * k + 1] = 0; } pl[1] = 2 * n; npat = 2;
+    }
+    int found = 0; mach_vm_address_t a = (mach_vm_address_t)(uintptr_t)G_MEM; const mach_vm_address_t end = a + 0x80000000ull;
+    while (a < end && found < 64) {
+        mach_vm_size_t sz = 0; vm_region_basic_info_data_64_t info; mach_msg_type_number_t cnt = VM_REGION_BASIC_INFO_COUNT_64; mach_port_t obj;
+        if (mach_vm_region(mach_task_self(), &a, &sz, VM_REGION_BASIC_INFO_64, (vm_region_info_t)&info, &cnt, &obj)) break;
+        if (a >= end) break;
+        if (info.protection & VM_PROT_READ) {
+            const uint8_t *p = (const uint8_t *)(uintptr_t)a; mach_vm_size_t n = sz; if (a + n > end) n = end - a;
+            for (int k = 0; k < npat; k++)
+                for (const uint8_t *q = p; found < 64 && (q = memmem(q, (size_t)(p + n - q), pat[k], pl[k])); q++, found++)
+                    fprintf(stderr, "Diablo2Native: find %s: %08x%s\n", line + 5, (uint32_t)(q - G_MEM), k ? " (utf-16)" : "");
+        }
+        a += sz;
+    }
+    fprintf(stderr, "Diablo2Native: find %s: %d found\n", line + 5, found);
+}
 static void *peek_thread(void *arg)
 {
     const char *path = arg; off_t pos = 0; char line[256]; extern uint8_t *G_MEM;
@@ -259,6 +300,7 @@ static void *peek_thread(void *arg)
         while (fgets(line, sizeof line, f)) {
             size_t l = strlen(line); if (!l || line[l - 1] != '\n') break;
             pos += (off_t)l; line[l - 1] = 0;
+            if (!strncmp(line, "find:", 5) || !strncmp(line, "dump:", 5)) { peek_find_dump(line); continue; }
             int w = !strncmp(line, "watch:", 6); char *e = line + (w ? 6 : 0); uint32_t at = (uint32_t)strtoul(e, &e, 16), v = 0;
             for (;;) { if (at < 0x10000u) { v = 0; break; } memcpy(&v, G_MEM + at, 4); if (*e != ',') break; at = v + (uint32_t)strtoul(e + 1, &e, 16); }
             if (*e == '=' && at >= 0x10000u) { uint32_t nv = (uint32_t)strtoul(e + 1, 0, 16); memcpy(G_MEM + at, &nv, 4);   /* "<chain>=<hex>": write */

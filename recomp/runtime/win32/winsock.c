@@ -88,6 +88,7 @@ static uint32_t game_listener;                          /* the socket the hosted
 IMPL(wsock32, ord3)                                     /* closesocket(s) */
 {
     SOCK(ARG(0), 1);
+    if (getenv("W32_NETLOG")) fprintf(stderr, "net: close %x (fd %d)\n", ARG(0), fd);
     if (ARG(0) == game_listener) { game_listener = 0; d2net_hosting(0, 4000); }   /* the hosted game has ended */
     pthread_mutex_lock(&s_lock); S[ARG(0) - SBASE].fd = 0; pthread_mutex_unlock(&s_lock);
     close(fd); RET(0, 1);
