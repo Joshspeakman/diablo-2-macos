@@ -20,12 +20,16 @@ void rt_hook(Ctx *c, uint32_t addr)
          * D2_RENDERER picks among the game's own renderers instead: "ddraw" (the default here: its DirectDraw renderer,
          * 8-bit software frames, the cinematics through Bink), "gdi" (its windowed mode; no cinematics there), "d3d"
          * (the game's choice: its Direct3D renderer, on Metal through runtime/win32/ddraw_pal.c). */
+        { void d2bnet_startup(void); d2bnet_startup(); }                  /* the menus' Battle.net buttons (d2bnet.c) */
         const char *r = getenv("D2_RENDERER"); uint32_t cfg = c->ebp - 0x4d8;
         if (r && !strcmp(r, "d3d")) break;
         int gdi = r && !strcmp(r, "gdi");
         G_MEM[cfg + 8] = (uint8_t)gdi; G_MEM[cfg + 10] = 0; G_MEM[cfg + 11] = 0; G_MEM[cfg + 12] = 0; G_MEM[cfg + 13] = 0;
         break;
     }
+    /* no Battle.net (D2_NO_BNET, d2bnet.c) */
+    case 0x00431de9: { void d2bnet_join_box(Ctx *c); d2bnet_join_box(c); break; }
+    case 0x00434790: case 0x004348a8: case 0x0043490e: case 0x00435d80: case 0x0042ffe0: { void d2bnet_event(Ctx *c, uint32_t a); d2bnet_event(c, addr); break; }
     /* wider than 4:3 (D2_WIDTH, d2wide.c) */
     case 0x004f55aa: if (d2wide_width()) rt_w32(G_MEM, c->edx, (uint32_t)d2wide_width()); break;   /* the 800x600 modes' size */
     case 0x00509c3f: case 0x0051126f: case 0x006b5037: case 0x006c7b75:        /* the renderers' screen size, as each sets it */
@@ -67,6 +71,7 @@ int rt_override(Ctx *c, uint32_t addr)
 {
     if (native_override(c, addr)) return 1;
     switch (addr) {
+    case 0x00524a30: { int d2bnet_string(Ctx *c); return d2bnet_string(c); }
     }
     return 0;
 }
