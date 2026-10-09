@@ -321,8 +321,8 @@ static NSArray<NSDictionary *> *notch_choices(void)
  * or its windowed mode. */
 static NSArray<NSDictionary *> *video_choices(void)
 {
-    return @[@{@"value": @"ddraw", @"label": @"DirectDraw", @"note": @"The classic renderer, with the cinematics (recommended)"},
-             @{@"value": @"d3d", @"label": @"Direct3D", @"note": @"The game's 3D renderer: Isometric or Perspective view"},
+    return @[@{@"value": @"ddraw", @"label": @"DirectDraw", @"note": @"The classic renderer, 800x600"},
+             @{@"value": @"d3d", @"label": @"Direct3D", @"note": @"Every option below (recommended)"},
              @{@"value": @"gdi", @"label": @"Windowed Mode", @"note": @"The game's -w mode: the same picture, no cinematics"}];
 }
 /* Direct3D's view (D2_PERSPECTIVE: the game's Options -> Video -> Perspective, kept in the registry): as last chosen in
@@ -515,15 +515,15 @@ int ds_launcher_run(const char *game_dir, const char *data_dir)
     (void)game_dir;
     NSString *data = @(data_dir), *plistPath = [data stringByAppendingPathComponent:@"launcher.plist"];
     NSDictionary *saved = [NSDictionary dictionaryWithContentsOfFile:plistPath] ?: @{};
-    DSRow *video = [DSRow new]; video.title = @"Video"; video.choices = video_choices(); video.index = index_of(video.choices, saved[@"video"], 0);
-    DSRow *view = [DSRow new]; view.title = @"View"; view.choices = view_choices(); view.index = index_of(view.choices, saved[@"view"], 0);
+    DSRow *video = [DSRow new]; video.title = @"Video"; video.choices = video_choices(); video.index = index_of(video.choices, saved[@"video"] ?: @"d3d", 0);
+    DSRow *view = [DSRow new]; view.title = @"View"; view.choices = view_choices(); view.index = index_of(view.choices, saved[@"view"] ?: @"on", 0);
     DSRow *scale = [DSRow new]; scale.title = @"Scaling"; scale.choices = scaling_choices(); scale.index = index_of(scale.choices, saved[@"scaling"], 0);
     DSRow *notch = [DSRow new]; notch.title = @"Notch"; notch.choices = notch_choices(); notch.index = index_of(notch.choices, saved[@"notch"], 0);
-    DSRow *res = [DSRow new]; res.title = @"Resolution"; res.choices = resolution_choices(); res.index = index_of(res.choices, saved[@"resolution"], 0);
-    DSRow *texr = [DSRow new]; texr.title = @"Textures"; texr.choices = texture_choices(); texr.index = index_of(texr.choices, saved[@"textures"], 0);
-    DSRow *fpsr = [DSRow new]; fpsr.title = @"Frame Rate"; fpsr.choices = fps_choices(); fpsr.index = index_of(fpsr.choices, saved[@"fps"], 0);
-    DSRow *widr = [DSRow new]; widr.title = @"Width"; widr.choices = width_choices(); widr.index = index_of(widr.choices, saved[@"width"], 0);
-    DSRow *zoomr = [DSRow new]; zoomr.title = @"Zoom"; zoomr.choices = zoom_choices(); zoomr.index = index_of(zoomr.choices, saved[@"zoom"], 0);
+    DSRow *res = [DSRow new]; res.title = @"Resolution"; res.choices = resolution_choices(); res.index = index_of(res.choices, saved[@"resolution"] ?: @"display", 0);
+    DSRow *texr = [DSRow new]; texr.title = @"Textures"; texr.choices = texture_choices(); texr.index = index_of(texr.choices, saved[@"textures"] ?: @"smooth", 0);
+    DSRow *fpsr = [DSRow new]; fpsr.title = @"Frame Rate"; fpsr.choices = fps_choices(); fpsr.index = index_of(fpsr.choices, saved[@"fps"] ?: @"display", 0);
+    DSRow *widr = [DSRow new]; widr.title = @"Width"; widr.choices = width_choices(); widr.index = index_of(widr.choices, saved[@"width"] ?: @"display", 0);
+    DSRow *zoomr = [DSRow new]; zoomr.title = @"Zoom"; zoomr.choices = zoom_choices(); zoomr.index = index_of(zoomr.choices, saved[@"zoom"] ?: @"2", 0);
     NSDictionary<NSString *, DSRow *> *rows = @{@"video": video, @"view": view, @"resolution": res, @"textures": texr, @"fps": fpsr, @"width": widr, @"zoom": zoomr,
                                                 @"scaling": scale, @"notch": notch};
     const char *shot = getenv("DS_LAUNCHER_SHOT");
@@ -542,10 +542,11 @@ int ds_launcher_run(const char *game_dir, const char *data_dir)
     DSSection *display = [DSSection new], *d3dSec = [DSSection new], *updSec = [DSSection new];
     d3dSec.title = @"Direct3D"; d3dSec.rows = @[view, res, texr, fpsr, widr, zoomr];
     __weak DSRow *wvid = video, *wview = view;
-    __weak DSRow *wres = res, *wtex = texr, *wfps = fpsr, *wwid = widr;
+    __weak DSRow *wres = res, *wtex = texr, *wfps = fpsr, *wwid = widr, *wzoom = zoomr;
     d3dSec.summary = ^NSString * {
         if (![wvid.choices[wvid.index][@"value"] isEqualToString:@"d3d"]) return @"Used when Video is Direct3D";
         NSString *f = [NSString stringWithFormat:@"%@%@", wfps.index ? [NSString stringWithFormat:@" · %@ fps", wfps.choices[wfps.index][@"label"]] : @"", wwid.index ? @" · Wide" : @""];
+        if (wzoom.index) f = [f stringByAppendingFormat:@" · Zoom %@", [wzoom.choices[wzoom.index][@"value"] stringByAppendingString:@"×"]];
         return [NSString stringWithFormat:@"%@ · %@ · %@%@", wview.choices[wview.index][@"label"], wres.choices[wres.index][@"label"], wtex.choices[wtex.index][@"label"], f];
     };
     display.title = @"Display"; display.rows = notch_height() > 0 ? @[scale, notch] : @[scale];
