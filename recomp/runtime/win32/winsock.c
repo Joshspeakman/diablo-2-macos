@@ -87,6 +87,7 @@ IMPL(wsock32, ord23)                                    /* socket(af, type, prot
 IMPL(wsock32, ord3)                                     /* closesocket(s) */
 {
     SOCK(ARG(0), 1);
+    if (getenv("W32_NETLOG")) fprintf(stderr, "net: close %x (fd %d)\n", ARG(0), fd);
     pthread_mutex_lock(&s_lock); S[ARG(0) - SBASE].fd = 0; pthread_mutex_unlock(&s_lock);
     close(fd); RET(0, 1);
 }

@@ -51,6 +51,12 @@ HOOKS = {                 # address: description (runtime/win32/hooks.c rt_hook)
     0x00462d00: 'zoom: a click in the world (the cursor into the larger view)',
     0x0046745f: 'zoom: the box of the unit under the cursor, recorded while the world is drawn',
     0x0046723c: 'zoom: the point the unit under the cursor is looked for at (into the larger view)',
+    0x00431de9: 'no Battle.net: the Join Game address box is built (its edit control at 0x779958)',
+    0x00434790: 'no Battle.net: the Join Game box\'s OK (the address is read from the edit control)',
+    0x004348a8: 'no Battle.net: joining failed (no connection to the address)',
+    0x0043490e: 'no Battle.net: joined (connected to the host; to the hero selection)',
+    0x00435d80: 'no Battle.net: Host Game',
+    0x0042ffe0: 'no Battle.net: the TCP/IP screen is built',
 }
 JUNK = {'in', 'out', 'insb', 'insd', 'insw', 'outsb', 'outsd', 'outsw', 'iretd', 'hlt', 'cli', 'sti', 'int1', 'into',
         'int', 'aaa', 'aas', 'aam', 'aad', 'daa', 'das', 'salc', 'les', 'lds', 'retf', 'ljmp', 'lcall', 'arpl', 'bound',
@@ -60,6 +66,7 @@ JUNK = {'in', 'out', 'insb', 'insd', 'insw', 'outsb', 'outsd', 'outsw', 'iretd',
 # Functions a native implementation can take over (runtime/win32/hooks.c rt_override): at the function's first
 # instruction the runtime may perform the whole call (including the return) itself.
 OVERRIDES = {             # address: description (runtime/win32/hooks.c rt_override)
+    0x00524a30: 'no Battle.net: the string table lookup (other labels for the Battle.net buttons)',
 }
 
 class Unsupported(Exception): pass
