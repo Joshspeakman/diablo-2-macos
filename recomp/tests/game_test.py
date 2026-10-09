@@ -32,6 +32,7 @@ recorded sound and the files the game writes:
             device's 3D voices and EAX 2.0 at start, plays its sounds through 3D buffers it places, sets each one's EAX
             properties and the area's environment, and the mix in the game stays below full scale
   tcpip     two instances: one hosts a TCP/IP game, the other joins it by this Mac's LAN address; both are in Act 1
+  gamelist  the same through the Battle.net button (ONLINE GAMES) and the game list: the joiner picks the host from it
             and the host's server has accepted the second player
 
 The game folder is only read. Nothing is written outside the scratch folder."""
@@ -215,13 +216,13 @@ try:
             time.sleep(5)
             for _ in range(4): g.send('click:400,300', 3)                                     # videos, title -> main menu
             g.send('click:400,416', 3); g.send('click:400,330', 3)                           # Other Multiplayer, TCP/IP Game
-        host = Game('tcpip-host', {'W32_NETLOG': '1'}); to_tcpip(host)
+        host = Game('tcpip-host', {'W32_NETLOG': '1', 'D2_MULTIPLAYER': 'lan'}); to_tcpip(host)        # LAN (Classic): the address typed
         host.send('click:400,189', 3)                                                         # Host Game: the hero selection
         host.send('click:400,300', 2); host.send('type:HostMac', 2); host.send('click:690,555', 12)
         import socket                                                                         # the address another PC would use
         try: lan = [x for x in socket.gethostbyname_ex(socket.gethostname())[2] if not x.startswith('127.')]
         except OSError: lan = []
-        join = Game('tcpip-join', {'W32_NETLOG': '1'}); to_tcpip(join)
+        join = Game('tcpip-join', {'W32_NETLOG': '1', 'D2_MULTIPLAYER': 'lan'}); to_tcpip(join)
         join.send('click:400,246', 3)                                                         # Join Game: the address box
         join.send('type:' + (lan[0] if lan else '127.0.0.1'), 2); join.send('click:469,322', 5)
         join.send('click:140,495', 3)                                                         # Create New Character
@@ -233,6 +234,29 @@ try:
         report('tcpip', hud(hs)[0] and hud(js)[0] and accepts >= 2 and received > 10,
                'host and joiner in Act 1: %s/%s; connections the host accepted: %d; packets the joiner received: %d (joined by %s)' % (
                    hud(hs)[0], hud(js)[0], accepts, received, lan[0] if lan else '127.0.0.1'))
+        host.stop(); join.stop()
+    # ---------------- Online games: the Battle.net button, the game list (no DHT, no router: local discovery) ----------------
+    if stage('gamelist'):
+        def to_online(g, shot=None):
+            time.sleep(5)
+            for _ in range(4): g.send('click:400,300', 3)                                     # videos, title -> main menu
+            if shot: g.shot(shot)                                                             # the button reads ONLINE GAMES
+            g.send('click:400,349', 3)                                                        # Battle.net (ONLINE GAMES) -> the TCP/IP screen
+        env = {'W32_NETLOG': '1', 'D2_MULTIPLAYER': 'internet', 'D2_GAMELIST_AUTO': '1'}
+        host = Game('list-host', env); to_online(host, 'main-menu')
+        host.send('click:400,189', 3)                                                         # Host Game: the hero selection
+        host.send('click:400,300', 2); host.send('type:HostMac', 2); host.send('click:690,555', 12)
+        join = Game('list-join', env); to_online(join)
+        join.send('click:400,246', 8)                                                         # Join Game: the list comes up and joins the game
+        join.send('click:140,495', 3)                                                         # Create New Character
+        join.send('click:400,300', 2); join.send('type:JoinMac', 2); join.send('click:690,555', 5)
+        join.send('click:690,555', 14)                                                        # OK: into the host's game
+        hs, js = host.shot('host'), join.shot('join')
+        jl = open(join.log).read(); hl = open(host.log).read()
+        listed = 'd2net: joining' in jl and 'HostMac' in jl.split('d2net: joining', 1)[1][:80]
+        report('gamelist', hud(hs)[0] and hud(js)[0] and listed and 'd2bnet: TCP/IP screen' in jl and 'd2net: hosting' in hl,
+               'host and joiner in Act 1: %s/%s; the joiner picked %s from the list; both went through the Battle.net button' % (
+                   hud(hs)[0], hud(js)[0], 'HostMac' if listed else 'nothing'))
         host.stop(); join.stop()
 except Exception as e:
     report('error', False, repr(e))

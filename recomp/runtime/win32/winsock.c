@@ -125,6 +125,10 @@ IMPL(wsock32, ord4)                                     /* connect(s, addr, len)
     /* A connection to this Mac's own LAN address (Diablo II's host joins the game it serves that way) goes through
      * loopback: the same machine, and macOS's Local Network privacy, which can hold a connection to the LAN address
      * until the user allows it, never applies to it. */
+    /* never Battle.net: its servers won't take this copy, and the game has some of their addresses built in (207.82.87.x;
+     * ports 6112-6113). The menus lead to TCP/IP games instead (d2bnet.c; D2_BNET=1 leaves them as they were). */
+    { uint32_t h = ntohl(a.sin_addr.s_addr); uint16_t p = ntohs(a.sin_port); const char *b = getenv("D2_BNET");
+      if (!(b && atoi(b)) && ((h >> 8) == 0xcf5257u || p == 6112 || p == 6113)) RET(fail(c, 10061), 3); }   /* WSAECONNREFUSED */
     if (a.sin_addr.s_addr != htonl(INADDR_LOOPBACK) && (own_address(a.sin_addr) || (a.sin_addr.s_addr && a.sin_addr.s_addr == d2net_public_ip())))
         a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);                   /* also the public address the host shows (d2net.c) */
     if (getenv("W32_NETLOG")) { char ip[32]; inet_ntop(AF_INET, &a.sin_addr, ip, sizeof ip); fprintf(stderr, "net: connect %x to %s:%u (fd %d)\n", ARG(0), ip, ntohs(a.sin_port), fd); }

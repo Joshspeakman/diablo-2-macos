@@ -57,6 +57,7 @@ HOOKS = {                 # address: description (runtime/win32/hooks.c rt_hook)
     0x0043490e: 'no Battle.net: joined (connected to the host; to the hero selection)',
     0x00435d80: 'no Battle.net: Host Game',
     0x0042ffe0: 'no Battle.net: the TCP/IP screen is built',
+    0x00431e00: 'no Battle.net: the Join Game box\'s Cancel (the game list closes)',
 }
 JUNK = {'in', 'out', 'insb', 'insd', 'insw', 'outsb', 'outsd', 'outsw', 'iretd', 'hlt', 'cli', 'sti', 'int1', 'into',
         'int', 'aaa', 'aas', 'aam', 'aad', 'daa', 'das', 'salc', 'les', 'lds', 'retf', 'ljmp', 'lcall', 'arpl', 'bound',

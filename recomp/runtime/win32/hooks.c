@@ -29,7 +29,7 @@ void rt_hook(Ctx *c, uint32_t addr)
     }
     /* no Battle.net (D2_NO_BNET, d2bnet.c) */
     case 0x00431de9: { void d2bnet_join_box(Ctx *c); d2bnet_join_box(c); break; }
-    case 0x00434790: case 0x004348a8: case 0x0043490e: case 0x00435d80: case 0x0042ffe0: { void d2bnet_event(Ctx *c, uint32_t a); d2bnet_event(c, addr); break; }
+    case 0x00434790: case 0x004348a8: case 0x0043490e: case 0x00435d80: case 0x0042ffe0: case 0x00431e00: { void d2bnet_event(Ctx *c, uint32_t a); d2bnet_event(c, addr); break; }
     /* wider than 4:3 (D2_WIDTH, d2wide.c) */
     case 0x004f55aa: if (d2wide_width()) rt_w32(G_MEM, c->edx, (uint32_t)d2wide_width()); break;   /* the 800x600 modes' size */
     case 0x00509c3f: case 0x0051126f: case 0x006b5037: case 0x006c7b75:        /* the renderers' screen size, as each sets it */
