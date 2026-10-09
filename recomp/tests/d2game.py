@@ -20,6 +20,7 @@ class Game:
         self.p = subprocess.Popen([CONFIG['app'], '--exe', CONFIG['exe'], '--game', CONFIG['game'], '--data', self.dir], stdout=open(self.log, 'w'),
                                   stderr=subprocess.STDOUT, env=e)
         self.t0 = time.time()
+        import atexit; atexit.register(self.stop)                     # never left running, even when a stage fails
     def send(self, line, wait=1.0):
         with open(self.cmd, 'a') as f: f.write(line + '\n')
         time.sleep(wait)
