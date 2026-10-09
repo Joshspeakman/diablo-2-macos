@@ -22,6 +22,7 @@
 #include <net/if.h>
 #include <netinet/in.h>
 #include <poll.h>
+#include <signal.h>
 #include <sys/socket.h>
 #include <time.h>
 #include <unistd.h>
@@ -99,7 +100,10 @@ static void *start_thread(void *arg)
 void d2net_start(void)
 {
     static int done; if (done++ || !list_on()) return;
+    signal(SIGPIPE, SIG_IGN);       /* a peer or router closing a connection is an error to handle, never the end of the game */
     group_init();
+    fprintf(stderr, "d2net: Internet games%s: learning this Mac's public address (%s)\n", getenv("D2_P2P_GROUP") && *getenv("D2_P2P_GROUP") ? " (private group)" : "",
+            router_ok() ? "the router, then the DHT" : "the DHT");
     void portmap_cleanup(void); if (router_ok()) portmap_cleanup();   /* a forward an earlier run left on the router */
     pthread_t t; if (!pthread_create(&t, 0, start_thread, 0)) pthread_detach(t);
 }
