@@ -89,13 +89,13 @@ has:
 
 | Setting | Choices |
 |---|---|
-| Video | **DirectDraw** (the classic renderer, plays the cinematics) · Direct3D (the game's 3D renderer) · Windowed Mode (the game's `-w` renderer; no cinematics) |
-| Direct3D → View | **Game's Choice** (the game's Options → Video → Perspective, as it last saved it) · Isometric · Perspective |
-| Direct3D → Resolution | **Original** (800×600, scaled to the display like DirectDraw) · Display (the game's frame drawn at the display's resolution: crisp edges and text) |
-| Direct3D → Textures | **Sharp** (the original pixels) · Smooth (bilinear filtering; cut-out sprites keep clean edges) |
-| Direct3D → Frame Rate | **Original** (25, as the game draws) · 60 · 120 · Display (its refresh rate): movement blended between the game's ticks |
-| Direct3D → Width | **Original** (4:3) · Display (the display's shape at the same height: more of the world to the sides; others in multiplayer see less) |
-| Direct3D → Zoom | **Off** (the game's own view) · Wheel or Pinch, 1.5× · Wheel or Pinch, 2× (wheel down or pinch to see more of the world, wheel up or spread the fingers to come back) |
+| Video | DirectDraw (the classic renderer) · **Direct3D** (the game's 3D renderer, with the options below; plays the cinematics too) · Windowed Mode (the game's `-w` renderer; no cinematics) |
+| Direct3D → View | Game's Choice (the game's Options → Video → Perspective, as it last saved it) · Isometric · **Perspective** |
+| Direct3D → Resolution | Original (800×600, scaled to the display like DirectDraw) · **Display** (the game's frame drawn at the display's resolution: crisp edges and text) |
+| Direct3D → Textures | Sharp (the original pixels) · **Smooth** (bilinear filtering; cut-out sprites keep clean edges) |
+| Direct3D → Frame Rate | Original (25, as the game draws) · 60 · 120 · **Display** (its refresh rate): movement blended between the game's ticks |
+| Direct3D → Width | Original (4:3) · **Display** (the display's shape at the same height: more of the world to the sides; others in multiplayer see less) |
+| Direct3D → Zoom | Off (the game's own view) · Wheel or Pinch, 1.5× · **Wheel or Pinch, 2×** (wheel down or pinch to see more of the world, wheel up or spread the fingers to come back) |
 | Display → Scaling | **Sharp** (square pixels, smoothed only at their edges) · Smooth (bilinear) · Pixel (nearest) · CRT (sharp with scanlines) |
 | Display → Notch | Hide the Notch (the picture below the camera, in macOS full screen) · Around the Notch (the whole display, the camera over the picture's top centre) |
 | Updates | rebuilds the app from the newest commit of its branch, from your own copy |

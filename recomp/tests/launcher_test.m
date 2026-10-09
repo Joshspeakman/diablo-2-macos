@@ -30,8 +30,10 @@ int main(int argc, char **argv)
             CHECK([env("D2_RENDERER") isEqualToString:@"d3d"]);
             CHECK([view isEqualToString:@"game"] ? env("D2_PERSPECTIVE") == nil : [env("D2_PERSPECTIVE") isEqualToString:view]);
         }
-        /* Direct3D's picture: resolution and textures (the first choices when none were saved) */
-        CHECK([env("D2_RESOLUTION") isEqualToString:@"original"] && [env("D2_TEXTURES") isEqualToString:@"sharp"] && env("D2_FPS") == nil && env("D2_WIDTH") == nil);
+        /* Direct3D's picture when none of it was saved: the most of each (the display's resolution and refresh rate, smooth
+         * textures, the display's width, zoom out to 2x) */
+        CHECK([env("D2_RESOLUTION") isEqualToString:@"display"] && [env("D2_TEXTURES") isEqualToString:@"smooth"] && [env("D2_FPS") isEqualToString:@"display"]
+              && [env("D2_WIDTH") isEqualToString:@"display"] && [env("D2_ZOOM_MAX") isEqualToString:@"2"]);
         [@{@"video": @"d3d", @"view": @"on", @"resolution": @"display", @"textures": @"smooth", @"fps": @"display", @"width": @"display", @"scaling": @"sharp", @"notch": @"hide"}
             writeToFile:[dir stringByAppendingPathComponent:@"launcher.plist"] atomically:YES];
         CHECK(ds_launcher_run("/nonexistent", dir.UTF8String) == 1);
