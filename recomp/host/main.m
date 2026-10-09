@@ -438,6 +438,9 @@ static void rel_motion(double gx, double gy)
 - (void)rightMouseUp:(NSEvent *)e { buttons &= ~2u; w32_keys[2] = 0; post(0x205, mk(), pos_lp()); }
 - (void)otherMouseDown:(NSEvent *)e { buttons |= 0x10; w32_keys[4] = 0x80; post(0x207, mk(), pos_lp()); }
 - (void)otherMouseUp:(NSEvent *)e { buttons &= ~0x10u; w32_keys[4] = 0; post(0x208, mk(), pos_lp()); }
+/* a trackpad's pinch zooms too: spreading the fingers comes closer (like a notch up), pinching sees more; a whole pinch
+ * (magnification about 1) is ten notches */
+- (void)magnifyWithEvent:(NSEvent *)e { int d2zoom_wheel(double notches); d2zoom_wheel(e.magnification * 10); }
 - (void)scrollWheel:(NSEvent *)e
 {
     int d2zoom_wheel(double notches);                                 /* zoom (runtime/win32/d2zoom.c), when the launch window turned it on */

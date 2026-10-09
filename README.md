@@ -14,7 +14,7 @@ this repository: the build regenerates everything locally from your copy, and th
 - all three of the game's renderers: DirectDraw (the classic 8-bit picture), its windowed mode, and Direct3D with
   both of its views (see [Graphics](#graphics));
 - an optional remastered Direct3D picture: drawn at the display's resolution, smooth textures, 60/120 fps or the
-  display's refresh rate, widescreen or ultra-wide, and zooming out with the mouse wheel, each a switch in the launch
+  display's refresh rate, widescreen or ultra-wide, and zooming out with the mouse wheel or a trackpad pinch, each a switch in the launch
   window;
 - sound through DirectSound on Core Audio: music, effects, speech, and the game's **3D Sound** and **Environmental
   Effects** (see [Sound](#sound)).
@@ -38,10 +38,10 @@ display. Every option is off (the original) unless chosen:
 | Textures → Smooth | Filtered textures (no stair-steps); sprites keep clean edges |
 | Frame Rate → 60 · 120 · Display | Frames between the game's 25 ticks a second, with movement blended between them: smooth walking, scrolling, monsters and missiles |
 | Width → Display | The display's shape (16:10, 16:9, 21:9, ...): more of the world to the sides, the interface at the screen's edges, menus kept 4:3 in the middle |
-| Zoom → Mouse Wheel | Zoom out with the mouse wheel (or two fingers on a trackpad) to see more of the world around you, up to 1.5× or 2×; wheel up returns to the game's own view. The interface stays as it is |
+| Zoom → Wheel or Pinch | Zoom out with the mouse wheel (on a trackpad: scroll with two fingers, or pinch) to see more of the world around you, up to 1.5× or 2×; wheel up (or spreading the fingers) returns to the game's own view. The interface stays as it is |
 
 A "remastered" setup: Video Direct3D, View Perspective (or Isometric), Resolution Display, Textures Smooth, Frame Rate
-Display, Width Display, Zoom Mouse Wheel.
+Display, Width Display, Zoom Wheel or Pinch.
 
 Known limitations: with more frames, the picture runs up to one tick (40 ms) behind the game and character
 animations stay at 25 frames a second; in Width → Display the help screen (H) still points at its 800×600 places, and
@@ -95,7 +95,7 @@ has:
 | Direct3D → Textures | **Sharp** (the original pixels) · Smooth (bilinear filtering; cut-out sprites keep clean edges) |
 | Direct3D → Frame Rate | **Original** (25, as the game draws) · 60 · 120 · Display (its refresh rate): movement blended between the game's ticks |
 | Direct3D → Width | **Original** (4:3) · Display (the display's shape at the same height: more of the world to the sides; others in multiplayer see less) |
-| Direct3D → Zoom | **Off** (the game's own view) · Mouse Wheel, 1.5× · Mouse Wheel, 2× (wheel down to see more of the world, up to come back) |
+| Direct3D → Zoom | **Off** (the game's own view) · Wheel or Pinch, 1.5× · Wheel or Pinch, 2× (wheel down or pinch to see more of the world, wheel up or spread the fingers to come back) |
 | Display → Scaling | **Sharp** (square pixels, smoothed only at their edges) · Smooth (bilinear) · Pixel (nearest) · CRT (sharp with scanlines) |
 | Display → Notch | Hide the Notch (the picture below the camera, in macOS full screen) · Around the Notch (the whole display, the camera over the picture's top centre) |
 | Updates | rebuilds the app from the newest commit of its branch, from your own copy |
