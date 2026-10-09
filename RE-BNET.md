@@ -51,8 +51,10 @@ if that is 127.0.0.1): controls 0x102–0x10b; **Host Game** 0x106 cb `0x435d80`
 ### State the TCP/IP path sets
 
 * `0x7795ec` connection type: 0 single player, 1 Battle.net, 2 TCP/IP, 3 Open Battle.net. `0x431a40` sets 2.
-* `0x42ffe0` sets `0x779954 = 1` itself and first calls `0x43b9a0` (tears down a Battle.net connection object
-  `[0x77abf0]` if one exists — none does on our path) and `0x42f480`, so it is safe to enter from *any* front-end
+* `0x42ffe0` sets `0x779954 = 1` itself and first calls `0x43b9a0` (if the Battle.net client object `[0x77abf0]`
+  exists — it probably always does, `0x434600` uses it unconditionally — it clears two flags in `B` and calls its
+  vtable `+0x10` close/reset; this ran harmlessly on every one of our TCP/IP screen openings, with no network
+  traffic) and `0x42f480`, so it is safe to enter from *any* front-end
   screen, including straight from the main menu (the Other Multiplayer screen sets nothing the TCP/IP path needs;
   `0x43c4f0`'s tail `0x432ef0` only moves controls for one language).
 * Host Game `0x435d80`: `[[0x7795d4]+0x19] = 8` (host), copies the local IP into `[0x7795d4]+0x37`, `[0x7795ec]=2`,
@@ -116,18 +118,23 @@ Evidence (`run2/join`): `11-join-box.png` shows the box with `127.0.0.1`; log `d
 `net: connect 1000 to 127.0.0.1:4000`; both players in Act 1 (`13-host.png`, `14-join.png`, HUD check true).
 
 **Host listening — port 4000 confirmed.** The server object is created by **`0x52b7a0`** (`push 0xfa0` = 4000 at
-`0x52b7be` → `0x6bf760`; object stored in `0x882d08`); its TCP listener is QSNTInit **`0x6c3120`** (`bind` call at
-`0x6c321d`, `listen(s, 0x19)` at **`0x6c325a`**, success continues at `0x6c3271`; socket kept at server `+0xb90`).
-Client side: `0x44bc30` dispatches on the game type `0x7a0610` (6/8 → `0x52b7a0(0,1)` then connect to itself).
-Log (`run2/host`): `net: bind 1000 to 0.0.0.0:4000`, `net: listen 1000 backlog 25`, `net: connect 1001 to
-127.0.0.1:4000` (the host's own client), then one `accept` per player.
+`0x52b7be` → `0x6bf760`; object stored in `0x882d08`). Client side, `0x44bc30` dispatches on the game type `0x7a0610`:
+6/8 → `0x52b7a0(0, 1)` (at `0x44bcad`), then the host's own client connects to it. The listener is opened by
+`0x6bf520`, which picks between two implementations on the server object's first dword: QServerNT `0x6c3360` →
+`0x6c3120` (IOCP; `listen(s, 0xfa)` at `0x6c325a`) or **QServer98 `0x6c3b50`** (`bind` call at `0x6c3c26`, **`listen(s,
+0x19)` at `0x6c3c4d`, success continues at `0x6c3c5e`**; socket at server `+0xb90`, port at `+0xba0`). The run logs show
+`backlog 25` (0x19), so the TCP/IP host in this port runs the **QServer98** path (`0x6c3b50`); the NT path is not used.
+Log (`run2/host`, `run3/host-nm`): `net: bind 1000 to 0.0.0.0:4000`, `net: listen 1000 backlog 25`, `net: connect 1001
+to 127.0.0.1:4000` (the host's own client). Accepts are **not** a player count: run2 (host + one joiner) shows three
+accepts — the host's own client, the joiner's probe connection made by the Join box's OK (`0x52a750` in `0x434790`,
+closed again), and the joiner's game connection; run3 (host alone) shows one. Use the roster (item 3) for the count.
 
 **Hosted game ends:** the client's game teardown **`0x44bd90`** calls **`0x52b2a0`** (server stop) for game types
 0/1/6/8 → `0x6c0170` (QServer shutdown: closes the listeners at `0x6c01da`, `WSACleanup`), `0x882d08 = 0`. The player
 unit `0x7a6a70` is cleared just before (watch: `0x039cbc00 -> 0` in `00409ab0 0040b3c0 0045f9f0 00465870 004659c0
 0044c890 0044f360 …`), then `net: close 1000` (the listener), and the front end returns to the TCP/IP screen (hook
 `0x42ffe0` fires again; `16-host-left.png`). Game start for comparison: `0x7a6a70` set in `00463a50 … 0044c6e0 0044efa0
-… 0044f360` (`0x44f360` = the in-game loop). Recommended signals for the host app: started = listen OK (`0x6c3271`) or
+… 0044f360` (`0x44f360` = the in-game loop). Recommended signals for the host app: started = listen OK (`0x6c3c5e`) or
 `[0x7a6a70] != 0 && [0x7a0610] == 8`; ended = hook `0x52b2a0` (or the listener close seen in winsock).
 
 Safety note: `0x44bc80`/`0x44bca2` hold hard-coded Blizzard addresses (207.82.87.139 / .243) for game types other than
@@ -192,7 +199,7 @@ installs) or poke its type.
 1. Launcher/host sets `D2_NO_BNET=1` (or make it the default): the Battle.net, gateway and Open Battle.net buttons
    open the TCP/IP screen; labels "GAME LIST" etc.
 2. Host app hooks: `0x42ffe0` (TCP/IP screen up → show the DHT list overlay), `0x431de9` (Join box open),
-   `0x435d80` (Host Game chosen), listen OK `0x6c3271` / stop `0x52b2a0` (announce / withdraw the DHT entry),
+   `0x435d80` (Host Game chosen), listen OK `0x6c3c5e` / stop `0x52b2a0` (announce / withdraw the DHT entry),
    `0x4348a8` / `0x43490e` (join failed / joined). Replace the `fprintf`s in `d2bnet_event` with a callback the host
    registers.
 3. Join from the list: `d2bnet_set_join_address(ip)` then click Join Game (or the host clicks it) → box filled →
@@ -200,7 +207,7 @@ installs) or poke its type.
 4. While hosting, announce every few seconds: name `B+0xbd`, class `B+0x1ee`, difficulty `B+0x210`, level and player
    count from the roster `[0x7bb5c0]`; TCP port 4000. Note: `portmap.c` (inherited from the DS2 port) maps UDP
    2302/6073 and nothing calls `portmap_open` in this port — internet hosting needs TCP 4000 mapped (NAT-PMP TCP opcode 2,
-   UPnP protocol "TCP") at listen OK `0x6c3271`, removed at `0x52b2a0`.
+   UPnP protocol "TCP") at listen OK `0x6c3c5e`, removed at `0x52b2a0`.
 
 ## Proof-of-concept diff (branch re-bnet)
 
