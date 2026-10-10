@@ -36,6 +36,8 @@ uint32_t w32_thunk_for(const char *dll, const char *name);           /* dynamic 
 uint32_t w32_thunk_register(const char *name, void (*fn)(Ctx *));   /* internal entry point (COM methods) */
 void     w32_exit(Ctx *c, uint32_t code) __attribute__((noreturn));
 extern volatile int w32_exited;
+int      w32_exiting_elsewhere(void);          /* another thread has called ExitProcess */
+void     w32_park_if_exiting(void);            /* then: never returns */
 extern uint32_t w32_exit_code;
 
 /* the recompiled images: [0] the game, then the DLLs recompiled with it (generated: tables.c) */

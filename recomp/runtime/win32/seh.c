@@ -10,6 +10,7 @@
 #include <sys/ucontext.h>
 #include <setjmp.h>
 #include <dlfcn.h>
+#include <unistd.h>
 
 __thread Ctx *w32_cur_ctx;                     /* the guest context of this thread (set by thread entry points) */
 static __thread uint32_t exc_stack;            /* per-thread guest stack for running exception handlers */
@@ -111,6 +112,9 @@ static int lifted_code(void *p)
 static void on_fault(int sig, siginfo_t *si, void *uc)
 {
     uint8_t *a = (uint8_t *)si->si_addr; Ctx *c = w32_cur_ctx;
+    /* a guest thread faulting after another called ExitProcess would be gone on Windows: end the process now (it may hold
+     * a runtime lock here, so it can't wait for the exit in progress), without a report */
+    if (c && w32_exiting_elsewhere()) _exit((int)w32_exit_code);
     if (c && G_MEM && a >= G_MEM && a < G_MEM + (1ull << 32)) {
         uint32_t ga = (uint32_t)(a - G_MEM);
         struct __darwin_ucontext *u = uc; uint32_t esr = (uint32_t)u->uc_mcontext->__es.__esr;
