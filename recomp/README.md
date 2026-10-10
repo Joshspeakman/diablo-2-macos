@@ -42,6 +42,15 @@ is unchanged. Screenshots and command-file input require test mode.
 The runtime lock table preserves live entries past deleted hash slots, preventing a second host mutex from being
 created for the same guest critical section.
 
+`select` follows Windows for the except set: only out-of-band data or a failed non-blocking connect. macOS's `poll`
+reports POLLPRI with POLLHUP when the other end closes; reported as an exception, the game's TCP/IP thread skipped the
+closed connection without reading it, spun in `select` and outlived the game's 2-second wait at exit, which then freed
+the connections under it ([issue 2](https://github.com/Joshspeakman/diablo-2-macos/issues/2)). As with Windows'
+ExitProcess, other guest threads now stop at their next Windows call once a thread calls ExitProcess (`w32: thread …
+stopped` in the log; one that faults meanwhile ends the process without a report). That alone did not prevent the
+fault: the game frees the connections in its own exit code, before ExitProcess. `game_test.py --only tcpexit` quits a host through the game's menus with a
+client still connected.
+
 ## Validation
 
 ```sh

@@ -32,6 +32,9 @@ recorded sound and the files the game writes:
             device's 3D voices and EAX 2.0 at start, plays its sounds through 3D buffers it places, sets each one's EAX
             properties and the area's environment, and the mix in the game stays below full scale
   tcpip     two instances: one hosts a TCP/IP game, the other joins it by this Mac's LAN address; both are in Act 1
+  tcpexit   then the host leaves (Save and Exit) with the joiner still in its game and quits through the game's own
+            menus (ExitProcess): the game's TCP/IP thread had ended when the game waited for it (it blocks in select
+            between packets instead of spinning on a closed connection), and the host ends without a fault or report
   gamelist  the same through the Battle.net button (ONLINE GAMES) and the game list: the joiner picks the host from it
             and the host's server has accepted the second player
 
@@ -214,12 +217,16 @@ try:
                'EAX 2.0 found: %s; %d 3D voices, %d placements; per-sound EAX: %s; environment set: %s; peak %.3f' % (
                    eax2, voices, placed, per_sound, env, peak))
     # ---------------- TCP/IP: one instance hosts, another joins ----------------
-    if stage('tcpip'):
+    if stage('tcpip') or stage('tcpexit'):
         def to_tcpip(g):
             time.sleep(5)
             for _ in range(4): g.send('click:400,300', 3)                                     # videos, title -> main menu
             g.send('click:400,416', 3); g.send('click:400,330', 3)                           # Other Multiplayer, TCP/IP Game
-        host = Game('tcpip-host', {'W32_NETLOG': '1', 'D2_MULTIPLAYER': 'lan'}); to_tcpip(host)        # LAN (Classic): the address typed
+        hostenv = {'W32_NETLOG': '1', 'D2_MULTIPLAYER': 'lan'}
+        if stage('tcpexit'):                                                                  # the TCP/IP thread's life, from its imports
+            hostenv.update(W32_TRACE=os.path.join(WORK, 'tcpip-host', 'trace.txt'), W32_TRACE_ONLY='kernel32!CreateThread,kernel32!WaitForSingleObject')
+            os.makedirs(os.path.join(WORK, 'tcpip-host'), exist_ok=True)
+        host = Game('tcpip-host', hostenv); to_tcpip(host)                                    # LAN (Classic): the address typed
         host.send('click:400,189', 3)                                                         # Host Game: the hero selection
         host.send('click:400,300', 2); host.send('type:HostMac', 2); host.send('click:690,555', 12)
         import socket                                                                         # the address another PC would use
@@ -234,9 +241,25 @@ try:
         hs, js = host.shot('host'), join.shot('join')
         accepts = sum(1 for l in open(host.log) if 'net: accept' in l)
         received = sum(1 for l in open(join.log) if 'net: recv' in l)
-        report('tcpip', hud(hs)[0] and hud(js)[0] and accepts >= 2 and received > 10,
-               'host and joiner in Act 1: %s/%s; connections the host accepted: %d; packets the joiner received: %d (joined by %s)' % (
-                   hud(hs)[0], hud(js)[0], accepts, received, lan[0] if lan else '127.0.0.1'))
+        if stage('tcpip'):
+            report('tcpip', hud(hs)[0] and hud(js)[0] and accepts >= 2 and received > 10,
+                   'host and joiner in Act 1: %s/%s; connections the host accepted: %d; packets the joiner received: %d (joined by %s)' % (
+                       hud(hs)[0], hud(js)[0], accepts, received, lan[0] if lan else '127.0.0.1'))
+        if stage('tcpexit'):
+            menu = save_and_exit(host)                                                        # the joiner is still in the game
+            host.send('key:27', 3); host.send('click:400,551', 1)                             # the main menu, Exit Diablo II
+            for _ in range(300):
+                if not host.alive(): break
+                time.sleep(0.1)
+            log = open(host.log, errors='replace').read(); worker = None; waits = []
+            for l in open(os.path.join(host.dir, 'trace.txt'), errors='replace'):
+                if 'CreateThread(0, 0, 6c3470' in l: worker = l.split('-> ')[1].strip()   # the game's TCP/IP thread (1.14d)
+                elif worker and 'WaitForSingleObject(%s, 7d0' % worker in l: waits.append(l.split('-> ')[1].strip())
+            reports = glob.glob(os.path.join(host.dir, 'CrashReports', 'crash-*'))
+            ended = 'game ended: exit 0' in log and host.p.poll() == 0
+            report('tcpexit', menu > MENU_GOLD and ended and waits == ['0'] and not reports and 'runtime fault' not in log,
+                   'menu text %.2f; the host quit through its menus: %s; its wait for the TCP/IP thread at exit: %s (0 = it had '
+                   'ended, 102 = still running after 2 s); crash reports: %d' % (menu, ended, waits or 'none', len(reports)))
         host.stop(); join.stop()
     # ---------------- Online games: the Battle.net button, the game list (no DHT, no router: local discovery) ----------------
     if stage('gamelist'):

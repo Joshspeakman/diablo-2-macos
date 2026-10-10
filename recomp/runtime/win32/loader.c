@@ -4,6 +4,7 @@
 #include <strings.h>
 #include <setjmp.h>
 #include <sys/mman.h>
+#include <unistd.h>
 
 uint32_t w32_image_base, w32_image_size, w32_entry, w32_tls_index_addr, w32_tls_template, w32_tls_size, w32_tls_zero;
 char     w32_game_dir[1024];
@@ -86,6 +87,7 @@ static FILE *text_trace; static int text_trace_init; static pthread_mutex_t tt_l
 void w32_crash_record_call(uint32_t index);
 void rt_import(Ctx *c, uint32_t index)
 {
+    w32_park_if_exiting();                                    /* the process is ending: no other thread runs on */
     w32_crash_record_call(index);
     if (index < MAX_THUNKS && thunk_target[index]) { rt_call(c, thunk_target[index]); return; }
     w32_trace_import(c, index);
@@ -117,10 +119,30 @@ void rt_import(Ctx *c, uint32_t index)
     thunk_fn[index](c);
 }
 
-/* ---- process exit ---- */
+/* ---- process exit ----
+ * Windows' ExitProcess ends every other thread of the process first. Here the process ends a little later (the calling
+ * thread returns to the host, which saves its trace and exits from the main queue), so the other guest threads stop at
+ * their next Windows call (and one that faults ends the process: seh.c) instead of running on meanwhile. */
+static pthread_t exit_thread; static pthread_mutex_t exit_lock = PTHREAD_MUTEX_INITIALIZER;
+int w32_exiting_elsewhere(void)                               /* another thread has called ExitProcess */
+{
+    return __atomic_load_n(&w32_exited, __ATOMIC_ACQUIRE) && !pthread_equal(pthread_self(), exit_thread);
+}
+void w32_park_if_exiting(void)
+{
+    if (!w32_exiting_elsewhere()) return;
+    extern __thread Ctx *w32_cur_ctx;
+    fprintf(stderr, "w32: thread %x stopped: the game is exiting\n", w32_cur_ctx ? w32_tid(w32_cur_ctx) : 0);
+    for (;;) pause();                                         /* until the process ends */
+}
 void w32_exit(Ctx *c, uint32_t code)
 {
-    (void)c; w32_exit_code = code; w32_exited = 1;
+    (void)c;
+    pthread_mutex_lock(&exit_lock);
+    int other = w32_exited && !pthread_equal(pthread_self(), exit_thread);     /* another thread is already exiting */
+    if (!other) { exit_thread = pthread_self(); w32_exit_code = code; __atomic_store_n(&w32_exited, 1, __ATOMIC_RELEASE); }
+    pthread_mutex_unlock(&exit_lock);
+    if (other) w32_park_if_exiting();
     if (w32_exit_jmp) longjmp(*w32_exit_jmp, 1);
     exit((int)code);
 }
