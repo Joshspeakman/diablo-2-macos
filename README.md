@@ -29,8 +29,9 @@ Diablo II has two looks, and both are here:
 - **Perspective** ("3D"): the game's Direct3D mode tilts the ground away toward the horizon, with depth as you walk.
   Direct3D → View → Perspective (or the game's own Options → Video → Perspective).
 
-On top of the game's Direct3D renderer, the launch window's **Direct3D** group can bring the picture up to a modern
-display. Every option is off (the original) unless chosen:
+The launch window's **Direct3D** group offers both original and modern display settings. Its defaults are Display
+resolution, Smooth textures, Display frame rate and width, and zoom up to 2×. For the original presentation, select
+Original resolution/frame rate/width, Sharp textures, and Zoom Off:
 
 | Option | What it does |
 |---|---|
@@ -131,8 +132,8 @@ recomp/tests/run_tests.sh "/path/to/Diablo II"   # and the game end to end (afte
     view; the HUD is drawn in each, the game keeps the view chosen, and the same place looks different in the two;
   - *d3d-hd*: the same character at the display's resolution with smooth textures: a larger 4:3 frame, the HUD in
     its place, the same brightness as at 800×600;
-  - *d3d-fps*: the same character walking at 60 frames a second: 12 consecutive frames (read back from the GPU) about
-    16 ms apart, each moved on from the one before by an even step (blended, not repeated);
+  - *d3d-fps*: the same character walking at 60 and 120 frames a second: 12 consecutive frames read back from the GPU
+    shortly after loading, each moved on from the one before by an even step (blended, not repeated);
   - *zoom*: Direct3D with Zoom 2×: ten wheel notches out draw the world to the screen's corners with the bottom bar
     and orbs as they were, and ten back return to the game's own view;
   - *d3d-wide*: the same character 1400 wide: the menus in the middle with black bars at the sides; in game a

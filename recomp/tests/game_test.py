@@ -158,15 +158,18 @@ try:
         report('d3d-hd', w > 800 and abs(w * 3 - h * 4) <= 4 and ok and abs(b - b0) < 0.15 * b0 and g.alive(),
                '%dx%d frame, HUD %s, brightness %.1f (800x600: %.1f)' % (w, h, 'drawn' if ok else 'missing', b, b0))
         g.stop()
-        g = Game('d3d-fps', {'D2_RENDERER': 'd3d', 'D2_FPS': '60', 'W32_BURST_DIR': os.path.join(WORK, 'd3d-fps', 'burst')}, saves=found[:1])
-        os.makedirs(os.path.join(g.dir, 'burst'), exist_ok=True)
-        to_hero_select(g); g.send('click:690,555', 12); g.send('click:780,300', 0.8)          # into Act 1, walking right
-        fr = burst(g); gaps = [b[0] - a[0] for a, b in zip(fr, fr[1:])]
-        steps = [scroll(a[1], b[1]) for a, b in zip(fr, fr[1:])]; xs = [abs(dx) for dx, dy in steps]
-        gaps_sorted = sorted(gaps); median = gaps_sorted[len(gaps) // 2] if gaps else 99
-        report('d3d-fps', len(fr) == 12 and median <= 20 and min(xs) >= 1 and max(xs) - min(xs) <= 2 and g.alive(),
-               '%d frames, %s ms apart; the picture moved %s pixels each frame' % (len(fr), gaps, xs))
-        g.stop()
+        for fps in (60, 120):
+            name = 'd3d-fps%d' % fps
+            g = Game(name, {'D2_RENDERER': 'd3d', 'D2_FPS': str(fps), 'W32_BURST_DIR': os.path.join(WORK, name, 'burst')}, saves=found[:1])
+            os.makedirs(os.path.join(g.dir, 'burst'), exist_ok=True)
+            to_hero_select(g); g.send('click:690,555', 4); g.send('click:780,300', 0.8)
+            # Measure soon after loading: a second auto limiter used to hold 120 at 60 for ten seconds.
+            fr = burst(g); gaps = [b[0] - a[0] for a, b in zip(fr, fr[1:])]
+            steps = [scroll(a[1], b[1]) for a, b in zip(fr, fr[1:])]; xs = [abs(dx) for dx, dy in steps]
+            gaps_sorted = sorted(gaps); median = gaps_sorted[len(gaps) // 2] if gaps else 99
+            report(name, len(fr) == 12 and median <= 1200 / fps and min(xs, default=0) >= 1 and max(xs, default=99) - min(xs, default=0) <= 2 and g.alive(),
+                   '%d frames, %s ms apart; the picture moved %s pixels each frame' % (len(fr), gaps, xs))
+            g.stop()
         W = 1400
         g = Game('d3d-wide', {'D2_RENDERER': 'd3d', 'D2_WIDTH': str(W)}, saves=found[:1]); to_hero_select(g)
         menu = g.shot('wide-menu'); mw, mh, _ = png.load(menu)

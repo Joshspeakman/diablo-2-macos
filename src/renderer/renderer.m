@@ -80,7 +80,8 @@ DSRRenderer *dsr_renderer_create(id<MTLDevice> dev)
     if (!r->lib) { fprintf(stderr, "shader compile failed: %s\n", err.localizedDescription.UTF8String); exit(1); }
     r->ring_size = 256u << 20;
     { const char *mb = getenv("DSR_RINGMB"); if (mb && atoi(mb) >= 4 && atoi(mb) <= 256) r->ring_size = (uint32_t)atoi(mb) << 20; }   /* development: a small ring wraps often */ r->ring = [dev newBufferWithLength:r->ring_size options:MTLResourceStorageModeShared];
-    { uint32_t w = 0xffffffff; r->white = [dev newBufferWithBytes:&w length:16 options:MTLResourceStorageModeShared]; }
+    { const uint32_t white[4] = {0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff};
+      r->white = [dev newBufferWithBytes:white length:sizeof white options:MTLResourceStorageModeShared]; }
     r->fl_on = getenv("DSR_FLASHLOG") != 0;
     { const char *f = getenv("DSR_FILTER"); r->filter = !f ? 2 : !strcmp(f, "pixel") ? 0 : !strcmp(f, "smooth") ? 1 : !strcmp(f, "crt") ? 3 : 2; }
     { const char *sc = getenv("DSR_RENDER_SCALE"); r->scale = sc ? (float)atof(sc) : 1; if (!(r->scale >= 1 && r->scale <= 4)) r->scale = 1; }
@@ -157,10 +158,21 @@ static void commit(DSRRenderer *r)
 }
 // Long resource-only stretches (level loading) would otherwise pile thousands of encoders into one command buffer.
 static void maybe_commit(DSRRenderer *r) { if (r->cb && (r->encoders > 512 || r->cb_bytes > (64u << 20))) commit(r); }
+static void ring_grow(DSRRenderer *r, uint64_t need)
+{
+    if (need <= r->ring_size) return;
+    uint64_t size = MAX((uint64_t)r->ring_size * 2, (need + 255) & ~255ull);
+    if (size > UINT32_MAX) { fprintf(stderr, "dsr: upload ring request too large: %llu\n", (unsigned long long)need); exit(1); }
+    commit(r); if (r->last_cb) [r->last_cb waitUntilCompleted];
+    id<MTLBuffer> buffer = [r->dev newBufferWithLength:(NSUInteger)size options:MTLResourceStorageModeShared];
+    if (!buffer) { fprintf(stderr, "dsr: cannot grow upload ring to %llu bytes\n", (unsigned long long)size); exit(1); }
+    r->ring = buffer; r->ring_size = (uint32_t)size; r->ring_off = 0;
+}
 static void *ring_alloc(DSRRenderer *r, uint32_t n, uint32_t *off)
 {
+    ring_grow(r, ((uint64_t)n + 255) & ~255ull);
     n = (n + 255) & ~255u;
-    if (r->ring_off + n > r->ring_size) {   // wrap: make sure the GPU is done with the old contents
+    if ((uint64_t)r->ring_off + n > r->ring_size) {   // wrap: make sure the GPU is done with the old contents
         commit(r); if (r->last_cb) [r->last_cb waitUntilCompleted];
         r->ring_off = 0;
     }
@@ -172,8 +184,8 @@ static void *ring_alloc(DSRRenderer *r, uint32_t n, uint32_t *off)
 static void ring_room(DSRRenderer *r, uint64_t n)
 {
     n += 6 * 256;                                   /* each allocation rounds up to 256 */
-    if (n > r->ring_size) return;
-    if (r->ring_off + n > r->ring_size) { commit(r); if (r->last_cb) [r->last_cb waitUntilCompleted]; r->ring_off = 0; }
+    ring_grow(r, n);
+    if ((uint64_t)r->ring_off + n > r->ring_size) { commit(r); if (r->last_cb) [r->last_cb waitUntilCompleted]; r->ring_off = 0; }
 }
 static id<MTLBlitCommandEncoder> blit_enc(DSRRenderer *r)
 {

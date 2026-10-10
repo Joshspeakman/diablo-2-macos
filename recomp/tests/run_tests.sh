@@ -15,6 +15,16 @@ step() { echo "== $1"; }
 step "present shader"
 clang -fobjc-arc -framework Metal -framework Foundation -framework QuartzCore -I "$ROOT/src/renderer" "$HERE/present_shader_test.m" "$ROOT/src/renderer/renderer.m" -o "$T/present_shader_test" \
   && (cd "$ROOT/src/renderer" && "$T/present_shader_test") || FAIL=1
+step "renderer initialization bounds"
+clang -O1 -g -fobjc-arc -fsanitize=address,undefined -framework Metal -framework Foundation -framework QuartzCore -I "$ROOT/src/renderer" "$HERE/renderer_init_test.m" "$ROOT/src/renderer/renderer.m" -o "$T/renderer_init_test" \
+  && (cd "$ROOT/src/renderer" && "$T/renderer_init_test") || FAIL=1
+step "upload ring bounds"
+clang -O1 -g -fobjc-arc -fsanitize=address,undefined -framework Metal -framework Foundation -framework QuartzCore "$HERE/renderer_ring_test.m" -o "$T/renderer_ring_test" \
+  && (cd "$ROOT/src/renderer" && "$T/renderer_ring_test") || FAIL=1
+step "frame trace shutdown"
+clang -O1 -g -fsanitize=address,undefined "$HERE/frame_trace_test.c" -o "$T/frame_trace_test" && "$T/frame_trace_test" || FAIL=1
+step "critical-section collisions"
+clang -O1 -g -fsanitize=address,undefined "$HERE/critical_sections_test.c" -o "$T/critical_sections_test" && "$T/critical_sections_test" || FAIL=1
 step "eax reverb"
 clang -O2 -I "$RECOMP/runtime/win32" "$HERE/eax_reverb_test.c" "$RECOMP/runtime/win32/eax_reverb.c" -o "$T/eax_reverb_test" && "$T/eax_reverb_test" || FAIL=1
 step "game list"
