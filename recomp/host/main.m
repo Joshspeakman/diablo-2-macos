@@ -140,12 +140,11 @@ static void *render_thread(void *arg)
                     uint64_t t_ready = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
                     id<CAMetalDrawable> d = [layer nextDrawable];
                     id<MTLCommandBuffer> cb = d ? dsr_renderer_present_to(r, d.texture) : nil;
-                    size_t ti = frame_trace.count;
-                    if (frame_trace.samples) ds_trace_add(&frame_trace, t_ready, clock_gettime_nsec_np(CLOCK_UPTIME_RAW), 0, w, h);
+                    size_t ti = ds_trace_add(&frame_trace, t_ready, clock_gettime_nsec_np(CLOCK_UPTIME_RAW), 0, w, h);
                     if (cb) {
                         [cb presentDrawable:d]; w32_crash_heartbeat(3);
                         [cb addCompletedHandler:^(id<MTLCommandBuffer> c) { (void)c; __atomic_store_n(&H->frames_done, fno, __ATOMIC_RELEASE);
-                            if (frame_trace.samples && ti < frame_trace.count) frame_trace.samples[ti].done = clock_gettime_nsec_np(CLOCK_UPTIME_RAW); }];
+                            ds_trace_complete(&frame_trace, ti, clock_gettime_nsec_np(CLOCK_UPTIME_RAW)); }];
                         dsr_renderer_flush(r, 0);
                     } else { dsr_renderer_flush(r, 0); __atomic_store_n(&H->frames_done, fno, __ATOMIC_RELEASE); }
                 }
@@ -713,10 +712,10 @@ static void game_list_open(int open)
 
 @interface AppDelegate : NSObject <NSApplicationDelegate> @end
 @implementation AppDelegate
-- (void)applicationDidBecomeActive:(NSNotification *)n { (void)n; if (winlog()) fprintf(stderr, "win: app active\n"); if (win.visible && !lab_mode) capture(1); post(0x1c, 1, 0);
+- (void)applicationDidBecomeActive:(NSNotification *)n { (void)n; if (test_mode) return; if (winlog()) fprintf(stderr, "win: app active\n"); if (win.visible && !lab_mode) capture(1); post(0x1c, 1, 0);
                                                                  post(0x112, 0xf120, 0); }   /* SC_RESTORE: the game minimized itself when it lost the focus */
-- (void)applicationDidResignActive:(NSNotification *)n { (void)n; if (winlog()) fprintf(stderr, "win: app inactive\n"); capture(0); post(0x1c, 0, 0); }
-- (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)s { (void)s; ds_trace_save(&frame_trace); frame_trace.samples = NULL; return NSTerminateNow; }
+- (void)applicationDidResignActive:(NSNotification *)n { (void)n; if (test_mode) return; if (winlog()) fprintf(stderr, "win: app inactive\n"); capture(0); post(0x1c, 0, 0); }
+- (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)s { (void)s; ds_trace_save(&frame_trace); return NSTerminateNow; }
 @end
 
 /* After a crash: say so, and offer the report (not in test mode). */
@@ -733,7 +732,7 @@ static void *game_thread(void *arg)
     (void)arg; char msg[256];
     uint32_t code = w32_run(msg, sizeof msg);
     fprintf(stderr, "Diablo2Native: game ended: %s\n", msg);
-    usleep(100000); ds_trace_save(&frame_trace); frame_trace.samples = NULL;
+    ds_trace_save(&frame_trace);
     game_running = 0;
     const char *rp = !strncmp(msg, "fault", 5) ? w32_crash_last_path() : 0;
     NSString *path = rp ? @(rp) : nil;
@@ -861,6 +860,11 @@ int main(int argc, char **argv)
                 char v[16]; snprintf(v, sizeof v, "%ld", hz > 25 ? hz : 60); setenv("D2_FPS", v, 1);
             }
             if (!ren || strcmp(ren, "d3d")) unsetenv("D2_FPS");                 /* DirectDraw and windowed: the game's 25 */
+            /* d2smooth already schedules each draw. The generic auto limiter starts at 60 and only upgrades
+             * after ten seconds of headroom; it would hold back 120/Display and spin a second time per frame.
+             * Keep an explicit DSR_FPSCAP override for diagnostics. Menus retain the game's own cadence. */
+            fps = getenv("D2_FPS");
+            if (fps && atoi(fps) > 25 && !getenv("DSR_FPSCAP")) setenv("DSR_FPSCAP", "0", 1);
         }
         w32_crash_init(data, DS_BUILD); w32_crash_thread("macOS UI thread");
         { void w32_registry_install(const char *); w32_registry_install(data); }   /* values the game's installer would have written */
