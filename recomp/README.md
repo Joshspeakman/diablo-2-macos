@@ -70,3 +70,19 @@ The October 2026 visual reference is tracked in [issue 1](https://github.com/Jos
 It uses the original 1.14d executable under Proton, 800×600 windowed software rendering, with no D2GL or FreeRes.
 The camp's High/Medium lighting and blended-shadow settings can be compared against the native GDI mode using
 the supplied isolated character. It is not a reference for the optional remastered or perspective modes.
+
+## A note from the author
+
+These projects are roughly 90% built with AI, with human testing along the way. I started them because some of my
+favorite games either ran badly on macOS or wouldn’t run at all, and Wine and CrossOver didn’t always get me where I
+wanted.
+
+I’m a 40-year-old dad with a full-time job. I don’t have the time or desire to write all of this from scratch, and AI
+made it possible to get somewhere with it.
+
+If that puts you off, no hard feelings. Use them, skip them, fork them. It’s all good. I would have happily used an
+existing, human-written native port, but I couldn’t find one that did what I wanted. Mostly, I just want to play my
+games.
+
+The aim is straightforward native builds without unwanted extras or a stack of translation layers. Forks and
+improvements are welcome.
