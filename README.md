@@ -38,16 +38,19 @@ Blizzard's Battle.net itself is not available (see [Playing online](#playing-onl
   Unicorn into it with pip, so it needs the internet once.
 - git, to clone this repository and for the in-app updates (the command line tools include it).
 - Diablo II for **Windows**, updated to **1.14d** (Blizzard's last classic patch). Only that `Game.exe` is accepted
-  (SHA-256 `631066c1…`): any other version is refused with "is not Diablo II 1.14d". Lord of Destruction is
-  optional for the build; the port has been played and tested with it installed.
-- About two minutes for the recompile, a few more for the whole install.
+  (SHA-256 `631066c1649c4ea9ffe48bf97e24c00bca1f7a6759c21150f1a79982589adaaf`): any other version is refused.
+  Testing used Lord of Destruction. The installer does not require expansion archives, but a base-game-only
+  installation has not been verified; the hash check still applies.
+- Build time and peak disk use have not been verified for a clean install. Allow room for your game files,
+  generated source and object files, the app, and additional update worktrees; time varies with the Mac.
 
 ## Getting the game files
 
 What the build needs is the folder a Windows installation of Diablo II 1.14d leaves: `Game.exe`, `D2.LNG`,
 `binkw32.dll`, `SmackW32.dll`, `ijl11.dll` and the archives `d2data.mpq`, `d2char.mpq`, `d2sfx.mpq`, `d2music.mpq`,
-`d2speech.mpq` and `d2video.mpq` (with Lord of Destruction also `d2exp.mpq`). `install.sh`
-checks for each of them and says which one is missing.
+`d2speech.mpq` and `d2video.mpq`. `install.sh` checks for those files and says which one is missing.
+For the tested Lord of Destruction setup, copy the whole patched installation, including all expansion archives;
+the installer does not check that those archives are complete.
 
 - **From a Windows PC:** install Diablo II (and Lord of Destruction) from Blizzard's classic download on your
   Battle.net account or from your discs, make sure it is at 1.14d, and copy the whole `Diablo II` folder to the Mac
@@ -58,10 +61,16 @@ checks for each of them and says which one is missing.
 - **Blizzard's Mac version won't do:** the classic Mac client has no `Game.exe`, and this port recompiles the
   Windows program. The search skips it.
 
+Do not assume a fresh Blizzard download is already 1.14d. Blizzard's [classic patch instructions](https://us.forums.blizzard.com/en/blizzard/t/diablo-ii-2000-unable-to-identify-version-2021/17508)
+describe downloads that need a separate update. Apply the appropriate Windows patch for your installation before
+copying it, then check `Game.exe` against the hash above; the current download's version has not been verified here.
+
 Characters from Windows are `.d2s` files in `Saved Games\Diablo II` (older versions kept them in the game's `save`
 folder); see [Where things go](#where-things-go) for where they go here.
 
 ## Install
+
+Keep the clone in a path without spaces: the current compile scripts split source paths on whitespace.
 
 ```sh
 git clone https://github.com/Joshspeakman/diablo-2-macos.git
@@ -71,7 +80,7 @@ cd diablo-2-macos
 ```
 
 This checks `Game.exe` (1.14d) and the other files, recompiles the game with its Bink, Smacker and JPEG libraries
-(about two minutes), and installs **Diablo II Native** in `~/Applications`. Open it from there (Finder, Launchpad or
+and installs **Diablo II Native** in `~/Applications`. Open it from there (Finder, Launchpad or
 Spotlight shows it as "Diablo II").
 
 | Option | What it does |
@@ -95,15 +104,17 @@ archives at install time (`recomp/tools/d2art.py`, `recomp/tools/d2_icon.m`).
 | Characters | `~/Games/Diablo2Native/drive_c/Users/player/Saved Games/Diablo II`, where 1.14d keeps them on Windows. Copy `.d2s` files there to bring characters over |
 | The game's own settings (what it keeps in the registry on Windows) | `~/Games/Diablo2Native/registry.txt` |
 | The launch window's settings | `~/Games/Diablo2Native/launcher.plist` |
-| Log | `~/Games/Diablo2Native/Diablo2Native.log` (Nightly: `Diablo2Nightly.log`); past 5 MB the previous one is kept as `.old.log` |
+| Log | `~/Games/Diablo2Native/Diablo2Native.log` (Nightly: `Diablo2Nightly.log`); at the next launch after it exceeds 5 MB, the previous log is kept as `.old.log` |
+| Update output | `~/Games/Diablo2Native/update.log` |
 | Crash and hang reports | `~/Games/Diablo2Native/CrashReports` |
 | Build files | in the clone: `recomp/work` (the generated code), `recomp/.venv` (the recompiler's Python tools), `build/` (the updater's and `--nightly`'s checkouts) |
 
 The app itself contains a copy of your `Game.exe` (`Contents/Resources/Game.exe`) and the code recompiled from it, so
 it is a build of your copy for your Mac.
 
-The game runs in macOS full screen with Game Mode on; with Notch → Around the Notch it is a borderless window over the
-whole display instead (macOS full screen always keeps a picture below the camera).
+[Game Mode](https://support.apple.com/en-us/105118) requires macOS 14 or later and macOS full screen. The game uses that
+full-screen mode; Notch → Around the Notch uses a borderless window over the whole display without Game Mode
+instead (macOS full screen always keeps a picture below the camera).
 
 ## The launch window
 
@@ -220,10 +231,10 @@ on Windows; change them in the game's Options → Configure Controls. On the Mac
 
 ## Updating
 
-The launch window's **Updates** row asks GitHub, each time it opens, whether the branch the app follows has a newer
-commit than the one it was built from: **Diablo II Native** follows `main`, **Diablo II Nightly** follows `nightly`.
+The launch window's **Updates** row asks GitHub, each time it opens, whether the branch the app follows has a different
+commit from the one it was built from: **Diablo II Native** follows `main`, **Diablo II Nightly** follows `nightly`.
 Press it to update: the branch is fetched into a worktree of the clone you installed from (`build/stable` or
-`build/nightly`), the app is rebuilt from your own copy of the game (a few minutes), and the app restarts. Your
+`build/nightly`), the app is rebuilt from your own copy of the game, and a Restart button appears when it finishes. Your
 characters and settings are kept. A failed update changes nothing if it stopped before installing; the details are
 in `~/Games/Diablo2Native/update.log`.
 
@@ -233,6 +244,13 @@ in `~/Games/Diablo2Native/update.log`.
   wasn't reachable (or git couldn't fetch without asking).
 - From the terminal instead: `git pull` in the clone and `./install.sh` (it reuses the game folder of the app
   already installed), or `./install.sh --nightly` for the Nightly app.
+
+**Custom folders:** if you installed with `--app-dir` or `--data-dir`, update by hand with the same options.
+The Updates button does not preserve them: it can install into the default app folder or switch to the default data
+folder. Your existing characters remain in the original data folder.
+
+The update check compares commit IDs, without checking ancestry. An app built from a local commit ahead of its
+remote branch can therefore be offered an older commit; update that build by hand.
 
 ## Uninstalling
 
