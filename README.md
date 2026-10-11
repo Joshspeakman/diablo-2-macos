@@ -456,6 +456,22 @@ Environment for development:
 - [recomp/README.md](recomp/README.md): building by hand, rendering and timing, validation.
 - [NOTICE.md](NOTICE.md): notices and credits.
 
+## A note from the author
+
+These projects are roughly 90% built with AI, with human testing along the way. I started them because some of my
+favorite games either ran badly on macOS or wouldn’t run at all, and Wine and CrossOver didn’t always get me where I
+wanted.
+
+I’m a 40-year-old dad with a full-time job. I don’t have the time or desire to write all of this from scratch, and AI
+made it possible to get somewhere with it.
+
+If that puts you off, no hard feelings. Use them, skip them, fork them. It’s all good. I would have happily used an
+existing, human-written native port, but I couldn’t find one that did what I wanted. Mostly, I just want to play my
+games.
+
+The aim is straightforward native builds without unwanted extras or a stack of translation layers. Forks and
+improvements are welcome.
+
 ## Legal
 
 Diablo, Diablo II and Lord of Destruction are trademarks of Blizzard Entertainment. This project is not affiliated
