@@ -266,7 +266,7 @@ Your Diablo II folder was never changed.
 
 | Message or symptom | What to do |
 |---|---|
-| `... is not Diablo II 1.14d` | Update the game to 1.14d (Blizzard's last classic patch) first. Only the original 1.14d `Game.exe` is accepted; modified or cracked executables, older patches and the Mac client are refused |
+| `... is not Diablo II 1.14d` | Update the game to 1.14d (Blizzard's last classic patch) first. Only the original 1.14d `Game.exe` is accepted; modified executables, older patches and the Mac client are refused |
 | `the game folder has no ...` | Point `--game-dir` at a complete installation (see [Getting the game files](#getting-the-game-files)) |
 | `usage: install.sh --game-dir ...` | No installation was found in the usual places: name the folder with `--game-dir` |
 | `clang is missing` / `python3 is missing` | Install the Xcode command line tools: `xcode-select --install` |
@@ -393,6 +393,13 @@ Notes on Diablo II:
 - The game's language file `D2.LNG` is loaded as a resource-only module; characters are kept where 1.14d keeps them on
   Windows (`SHGetKnownFolderPath` Saved Games); settings the game keeps in the registry persist in
   `<data>/registry.txt`.
+- Online games (`runtime/win32/d2bnet.c`, `d2net.c`, `p2p_dht.c`, `portmap.c`; the research in
+  [docs/RE-BNET.md](docs/RE-BNET.md)): the front end's screens are built from one table of controls, and at start the
+  Battle.net, gateway and Open Battle.net entries get the TCP/IP Game button's callback, so no Battle.net connection
+  is ever started from the menus; the two labels are replaced through the string lookup (`0x524a30`). A hook where
+  the Join Game box is built shows the host app's list and fills the box; while the game listens on TCP 4000 it is
+  announced on the DHT, and UDP 4000 answers the list's fixed-size questions with details read from the game's
+  memory (the front end's game record and the roster).
 - WS2_32's ordinals 10–12 differ from WSOCK32's (ioctlsocket, inet_addr, inet_ntoa); the host's own client in a TCP/IP
   game reaches the game's server through loopback.
 
@@ -409,7 +416,10 @@ Environment for development:
 - the launch window's settings: `D2_RENDERER=ddraw|gdi|d3d`, `D2_PERSPECTIVE=on|off`, `D2_RESOLUTION=original|display`,
   `D2_TEXTURES=sharp|smooth`, `D2_FPS=<n>|display`, `D2_WIDTH=<n>|display`, `D2_ZOOM_MAX=<1-3>` (`D2_ZOOM=<z>`: a fixed
   zoom, for tests), `DSR_FILTER=sharp|smooth|pixel|crt`,
-  `DS_NOTCH=hide|around`;
+  `DS_NOTCH=hide|around`, `D2_MULTIPLAYER=internet|lan`, `D2_P2P_GROUP=<name>`, `DS_NO_PORTMAP=1` (the router left
+  alone);
+- online games: `D2_NO_P2P=1` (the game list on the local network only, no DHT), `D2_BNET=1` (the Battle.net buttons as
+  they were), `D2_JOIN_ADDR=<address>` (put into the Join Game box), `P2P_DHT_LOG=1` (the DHT lookups);
 - testing: `DS_TEST=1` (background window, no launch window), `DS_CMDFILE=<file>` (scripted clicks, keys, typing and
   screenshots), `W32_BURST_DIR=<dir>` (12 consecutive frames when `<dir>/go` appears), `W32_AUDIO_DUMP=<file.wav>`,
   `DSR_RENDER_SCALE=<1-4>`;
