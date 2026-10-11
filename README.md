@@ -10,9 +10,8 @@ The game folder is only read, and the app keeps loading the game's archives from
 
 ## State
 
-**Beta.** The latest release is [Beta 2](https://github.com/Joshspeakman/diablo-2-macos/releases/tag/beta-2);
-`main` and `nightly` have moved on since (online games without Battle.net, pinch zoom, the best picture by default,
-fixes). The game is playable natively:
+**Beta.** [Beta 3](https://github.com/Joshspeakman/diablo-2-macos/releases/tag/beta-3) adds online games without
+Battle.net, pinch zoom, updated display defaults and fixes. The game is playable natively:
 
 - the Blizzard intro and the cinematics (Bink, with sound), the title, the menus;
 - single player: new characters of every class, all five acts (their towns and waypoints), every class's skills, the
