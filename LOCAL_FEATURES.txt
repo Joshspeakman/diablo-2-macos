@@ -1,0 +1,10 @@
+LOCAL REVIEW BUILD - 2026-10-12
+Not published to nightly.
+
+Diablo II: native Glide / 3dfx on Metal
+
+Choose Video -> Glide / 3dfx. The 3D graphics group also applies to Glide: perspective, display rendering, texture filtering, frame rate, width and zoom. DirectDraw, windowed mode and Direct3D remain selectable.
+
+The guest uses the original game's Glide renderer. Native Glide entry points translate its textures, palettes, chroma, color/alpha combiners, blending, clipping and movie framebuffer transfers into Metal work. This implements the single-TMU subset Diablo II uses.
+
+Validation: real Glide gameplay at 800x600 and 1066x600/display scaling, existing Direct3D gameplay, guest-ABI-to-Metal fixture, launcher preference round trips and nine runtime regression groups.

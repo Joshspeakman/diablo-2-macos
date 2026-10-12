@@ -33,6 +33,7 @@ struct DSRRenderer {
     float scale; uint32_t mode_w, mode_h;   /* the interface size (1: none) and the game's display mode */
     id<MTLDevice> dev; id<MTLCommandQueue> q; id<MTLLibrary> lib;
     Surf s[MAXSURF];
+    uint32_t glide[16]; int32_t scissor[4];
     uint32_t rs[256], tss[8][32]; float xf[32][16]; float vp[6]; uint32_t tex[8];
     uint32_t rt, ds;
     id<MTLCommandBuffer> cb, last_cb; id<MTLRenderCommandEncoder> enc; id<MTLBlitCommandEncoder> blit; uint32_t enc_rt, enc_ds, encoders; uint64_t cb_bytes;
@@ -315,6 +316,7 @@ static void quad(DSRRenderer *r, uint32_t dst, const int32_t *drect, uint32_t sr
     q.color[0] = ((color >> 16) & 255) / 255.0f; q.color[1] = ((color >> 8) & 255) / 255.0f; q.color[2] = (color & 255) / 255.0f; q.color[3] = ((color >> 24) & 255) / 255.0f;
     q.mode[0] = fill == 1;
     id<MTLRenderCommandEncoder> e = enc_for(r, dst, 0); if (!e) return;
+    [e setScissorRect:(MTLScissorRect){0, 0, d->tex.width, d->tex.height}];
     [e setRenderPipelineState:fill == 2 ? r->quad_over_pso : r->quad_pso]; [e setDepthStencilState:r->nodepth_ds]; [e setCullMode:MTLCullModeNone];
     [e setViewport:(MTLViewport){0, 0, d->w * d->sc, d->h * d->sc, 0, 1}];                   /* texture pixels (a scaled target: larger) */
     [e setVertexBytes:&q length:sizeof q atIndex:0]; [e setFragmentBytes:&q length:sizeof q atIndex:0];
@@ -347,7 +349,9 @@ static id<MTLRenderPipelineState> pipeline_for(DSRRenderer *r, uint32_t fvf, int
     uint32_t blend = r->rs[27] ? 1 : 0, sb = blend ? target_bf(r, r->rs[19]) : 2, db = blend ? target_bf(r, r->rs[20]) : 1;
     uint32_t atest = r->rs[15] ? 1 : 0;                                                       // D3DRS_ALPHATESTENABLE
     uint32_t cw = r->rs[168] & 15;                                                            // D3DRS_COLORWRITEENABLE (R1 G2 B4 A8)
-    uint64_t key = ((uint64_t)fvf << 32) | (uint64_t)cw << 20 | (blend << 16) | (sb << 8) | (db << 4) | atest << 2 | (uint64_t)has_depth << 1 | 1;   // never 0
+    uint32_t sa = blend && r->rs[206] ? target_bf(r, r->rs[207]) : sb;
+    uint32_t da = blend && r->rs[206] ? target_bf(r, r->rs[208]) : db;
+    uint64_t key = ((uint64_t)fvf << 32) | (uint64_t)cw << 20 | (blend << 24) | (sa << 16) | (da << 12) | (sb << 8) | (db << 4) | (!!r->glide[0] << 3) | atest << 2 | (uint64_t)has_depth << 1 | 1;   // never 0
     if (key == r->pso_k[r->pso_last]) return r->pso_v[r->pso_last];                                         // same as the last draw
     uint32_t h = (uint32_t)((key * 0x9e3779b97f4a7c15ull) >> 54);
     while (r->pso_k[h] && r->pso_k[h] != key) h = (h + 1) & 1023;
@@ -355,13 +359,14 @@ static id<MTLRenderPipelineState> pipeline_for(DSRRenderer *r, uint32_t fvf, int
     id<MTLRenderPipelineState> p;
     MTLRenderPipelineDescriptor *d = [MTLRenderPipelineDescriptor new]; NSError *err = nil;
     d.vertexFunction = [r->lib newFunctionWithName:@"vs_main"];
-    {   MTLFunctionConstantValues *fc = [MTLFunctionConstantValues new]; bool at = atest; [fc setConstantValue:&at type:MTLDataTypeBool atIndex:0];
+    {   MTLFunctionConstantValues *fc = [MTLFunctionConstantValues new]; bool at = atest, glide = r->glide[0] != 0; [fc setConstantValue:&at type:MTLDataTypeBool atIndex:0]; [fc setConstantValue:&glide type:MTLDataTypeBool atIndex:1];
         d.fragmentFunction = [r->lib newFunctionWithName:@"fs_main" constantValues:fc error:&err]; }
     d.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
     if (has_depth) d.depthAttachmentPixelFormat = d.stencilAttachmentPixelFormat = MTLPixelFormatDepth32Float_Stencil8;
     d.colorAttachments[0].writeMask = (cw & 1 ? MTLColorWriteMaskRed : 0) | (cw & 2 ? MTLColorWriteMaskGreen : 0) | (cw & 4 ? MTLColorWriteMaskBlue : 0) | (cw & 8 ? MTLColorWriteMaskAlpha : 0);
     if (blend) { d.colorAttachments[0].blendingEnabled = YES; d.colorAttachments[0].sourceRGBBlendFactor = d.colorAttachments[0].sourceAlphaBlendFactor = bf(sb);
-                 d.colorAttachments[0].destinationRGBBlendFactor = d.colorAttachments[0].destinationAlphaBlendFactor = bf(db); }
+                 d.colorAttachments[0].destinationRGBBlendFactor = bf(db);
+                 d.colorAttachments[0].sourceAlphaBlendFactor = bf(sa); d.colorAttachments[0].destinationAlphaBlendFactor = bf(da); }
     MTLVertexDescriptor *v = [MTLVertexDescriptor vertexDescriptor]; uint32_t off = 0;
     int rhw = (fvf & 0xe) == 4;
     v.attributes[0].format = rhw ? MTLVertexFormatFloat4 : MTLVertexFormatFloat3; v.attributes[0].offset = 0; v.attributes[0].bufferIndex = 0; off = rhw ? 16 : 12;
@@ -472,6 +477,17 @@ static void draw(DSRRenderer *r, const uint32_t *p, uint32_t size)
     u.xrgb[0] = t0 && t0->fmt == 2; u.xrgb[1] = t1 && t1->fmt == 2;
     uint32_t uoff; memcpy(ring_alloc(r, sizeof u, &uoff), &u, sizeof u);   // one copy, read by both stages
     e = enc_for(r, r->rt, r->ds);                                         // (ring_alloc may have flushed)
+    if (r->glide[0]) [e setFragmentBytes:r->glide length:sizeof r->glide atIndex:2];
+    MTLScissorRect clip = {0, 0, rt->tex.width, rt->tex.height};
+    if (r->rs[174]) {
+        int x = MAX(0, MIN((int)clip.width, (int)floor(r->scissor[0] * rt->sc)));
+        int y = MAX(0, MIN((int)clip.height, (int)floor(r->scissor[1] * rt->sc)));
+        int right = MAX(x, MIN((int)clip.width, (int)ceil(r->scissor[2] * rt->sc)));
+        int bottom = MAX(y, MIN((int)clip.height, (int)ceil(r->scissor[3] * rt->sc)));
+        clip = (MTLScissorRect){x, y, right - x, bottom - y};
+    }
+    if (!clip.width || !clip.height) return;
+    [e setScissorRect:clip];
     id<MTLDepthStencilState> dso = depth_for(r);
     if (r->es.pso != pso) { [e setRenderPipelineState:pso]; r->es.pso = pso; }
     if (r->es.dso != dso) { [e setDepthStencilState:dso]; r->es.dso = dso; }
@@ -824,6 +840,8 @@ int dsr_renderer_exec(DSRRenderer *r, uint32_t op, const uint8_t *pl, uint32_t s
             else if (dsr_trace_req || dsr_frame + 1 == base) { dsr_trace_req = 0; tracing = 1; fprintf(stderr, "trace: frame %d begins\n", dsr_frame + 1); }
         } }
     switch (op) {
+    case DSR_GLIDE_STATE: if (size >= sizeof r->glide) memcpy(r->glide, p, sizeof r->glide); break;
+    case DSR_SCISSOR: if (size >= sizeof r->scissor) memcpy(r->scissor, p, sizeof r->scissor); break;
     case DSR_RENDER_STATE: if (p[0] < 256) r->rs[p[0]] = p[1]; break;
     case DSR_TSS: if (p[0] < 8 && p[1] < 32) { r->tss[p[0]][p[1]] = p[2]; if (p[1] == 12) r->tss[p[0]][13] = r->tss[p[0]][14] = p[2]; } break;
     case DSR_TEXTURE: if (p[0] < 8) r->tex[p[0]] = p[1]; break;

@@ -18,7 +18,7 @@ Battle.net, pinch zoom, updated display defaults and fixes. The game is playable
   HUD, dialogue with speech, saving and loading;
 - multiplayer without Battle.net: an **online game list** that needs no server (the menus' Battle.net buttons lead
   to it), and the game's own **TCP/IP** games on a LAN, by address (see [Playing online](#playing-online));
-- all three of the game's renderers: DirectDraw (the classic 8-bit picture), its windowed mode, and Direct3D with
+- the game's original renderers, including Glide/3dfx on Metal: DirectDraw (the classic 8-bit picture), its windowed mode, and Direct3D with
   both of its views (see [Graphics](#graphics));
 - an optional remastered Direct3D picture: drawn at the display's resolution, smooth textures, 60/120 fps or the
   display's refresh rate, widescreen or ultra-wide, and zooming out with the mouse wheel or a trackpad pinch, each a
@@ -123,13 +123,13 @@ with the remastered Direct3D picture, and the original look is a few switches aw
 
 | Setting | Choices |
 |---|---|
-| Video | DirectDraw (the classic renderer, 800×600) · **Direct3D** (the game's 3D renderer, with the options below; plays the cinematics too) · Windowed Mode (the game's `-w` renderer; no cinematics) |
-| Direct3D → View | Game's Choice (the game's Options → Video → Perspective, as it last saved it) · Isometric · **Perspective** |
-| Direct3D → Resolution | Original (800×600, scaled to the display like DirectDraw) · **Display** (the game's frame drawn at the display's resolution: crisp edges and text) |
-| Direct3D → Textures | Sharp (the original pixels) · **Smooth** (bilinear filtering; cut-out sprites keep clean edges) |
-| Direct3D → Frame Rate | Original (25, as the game draws) · 60 · 120 · **Display** (its refresh rate): movement blended between the game's ticks |
-| Direct3D → Width | Original (4:3) · **Display** (the display's shape at the same height: more of the world to the sides; others in multiplayer see less) |
-| Direct3D → Zoom | Off (the game's own view) · Wheel or Pinch, 1.5× · **Wheel or Pinch, 2×** (wheel down or pinch to see more of the world, wheel up or spread the fingers to come back) |
+| Video | Glide / 3dfx (the original Glide renderer on Metal) · DirectDraw (the classic renderer, 800×600) · **Direct3D** (the game's 3D renderer, with the options below; plays the cinematics too) · Windowed Mode (the game's `-w` renderer; no cinematics) |
+| 3D graphics → View | Game's Choice (the game's Options → Video → Perspective, as it last saved it) · Isometric · **Perspective** |
+| 3D graphics → Resolution | Original (800×600, scaled to the display like DirectDraw) · **Display** (the game's frame drawn at the display's resolution: crisp edges and text) |
+| 3D graphics → Textures | Sharp (the original pixels) · **Smooth** (bilinear filtering; cut-out sprites keep clean edges) |
+| 3D graphics → Frame Rate | Original (25, as the game draws) · 60 · 120 · **Display** (its refresh rate): movement blended between the game's ticks |
+| 3D graphics → Width | Original (4:3) · **Display** (the display's shape at the same height: more of the world to the sides; others in multiplayer see less) |
+| 3D graphics → Zoom | Off (the game's own view) · Wheel or Pinch, 1.5× · **Wheel or Pinch, 2×** (wheel down or pinch to see more of the world, wheel up or spread the fingers to come back) |
 | Display → Scaling | **Sharp** (square pixels, smoothed only at their edges) · Smooth (bilinear) · Pixel (nearest) · CRT (sharp with scanlines) |
 | Display → Notch (only on a display with a notch) | **Hide the Notch** (the picture below the camera, in macOS full screen) · Around the Notch (the whole display, the camera over the picture's top centre) |
 | Multiplayer → Type | **Internet (Game List)** (the Battle.net buttons lead to the online game list) · LAN (Classic) (the game's own TCP/IP, as it was: type the host's address) |
@@ -137,7 +137,7 @@ with the remastered Direct3D picture, and the original look is a few switches aw
 | Multiplayer → Router | **Open Port When Hosting** (asks your router, by UPnP or NAT-PMP, for TCP and UDP 4000 while you host) · Leave Router Alone (forward them yourself) |
 | Updates | shows whether a newer commit of the app's branch is on GitHub; press it to rebuild the app from it, from your own copy (see [Updating](#updating)) |
 
-The Direct3D settings apply only when Video is Direct3D. The game's own options (gamma, contrast, sound and music
+The 3D graphics settings apply to both Direct3D and Glide / 3dfx. The game's own options (gamma, contrast, sound and music
 volume, light quality, ...) are in its Options menu and are kept between sessions.
 
 ## Graphics
@@ -146,9 +146,9 @@ Diablo II has two looks, and both are here:
 
 - **Isometric** ("2D"): the classic flat view. DirectDraw always shows it; Direct3D shows it with View → Isometric.
 - **Perspective** ("3D"): the game's Direct3D mode tilts the ground away toward the horizon, with depth as you walk.
-  Direct3D → View → Perspective (or the game's own Options → Video → Perspective).
+  3D graphics → View → Perspective (or the game's own Options → Video → Perspective).
 
-The launch window's **Direct3D** group offers both original and modern display settings. Its defaults are Display
+The launch window's **3D graphics** group offers both original and modern display settings. Its defaults are Display
 resolution, Smooth textures, Display frame rate and width, and zoom up to 2×. For the original presentation, select
 Original resolution/frame rate/width, Sharp textures, and Zoom Off:
 
@@ -225,7 +225,7 @@ The game's own: the mouse (left button to move and attack, right button for the 
 on Windows; change them in the game's Options → Configure Controls. On the Mac:
 
 - On a trackpad, a click is the left button and a two-finger click the right one (macOS's secondary click).
-- With Direct3D → Zoom on, the mouse wheel (or two-finger scrolling) and a trackpad pinch zoom out and back in.
+- With 3D graphics → Zoom on, the mouse wheel (or two-finger scrolling) and a trackpad pinch zoom out and back in.
 - Esc goes to the game (it doesn't leave full screen); keys with ⌘ go to macOS, so ⌘-Tab switches apps.
 
 ## Updating
@@ -273,7 +273,7 @@ Your Diablo II folder was never changed.
 - Zoomed out, the GPU draws that much more of the world (about 2.5× at 1.6×): at the display's resolution the frame
   rate can halve. At the farthest zoom in a large outdoor area, the ground can end at the rooms the game has loaded
   around you (black patches at the far corners).
-- Windowed Mode doesn't play the cinematics; DirectDraw and Direct3D do.
+- Windowed Mode doesn't play the cinematics; DirectDraw, Direct3D and Glide do.
 - Deeper play (bosses, the cube, trading, mercenaries) can reach code that hasn't run yet; the crash report names
   what was missing.
 - The October 2026 comparison against the original 1.14d picture is tracked in
@@ -304,6 +304,7 @@ recomp/tests/run_tests.sh "/path/to/Diablo II"   # and the game end to end (afte
 - **Present shader** (`present_shader_test.m`): the Metal renderer draws a known picture into an offscreen drawable;
   every pixel is checked for each scaling filter (whole-pixel blocks, blends only at block edges, bilinear, scanline
   shading) and for the gamma ramp.
+- **Glide** (`glide_metal_test.m`): the guest Glide ABI through Metal, including palette changes, chroma key, separate color/alpha blending, clipping, display scaling, framebuffer movie transfers and reopening at a new size.
 - **Launch window** (`launcher_test.m`): its settings reach the runtime and are remembered; it draws with the art.
 - **EAX reverb** (`eax_reverb_test.c`): measured from impulse responses: the decay time (0.8–5 s, ±20%), the faster
   treble decay with a low decay HF ratio, nothing before the reflections delay, levels in millibels (−600 mB = −6 dB of
@@ -366,8 +367,9 @@ Notes on Diablo II:
 
 - 1.14d always runs Direct3D when not windowed. A start-up hook (`tools/lift.py` HOOKS, `runtime/win32/hooks.c`) picks
   among the game's own renderers instead (`D2_RENDERER`): its DirectDraw renderer (default), its windowed GDI mode, or
-  its Direct3D renderer. The first two draw 8-bit pictures in software; `runtime/win32/ddraw_pal.c` (palettized
+  its Direct3D renderer, or Glide / 3dfx (`glide`). The first two draw 8-bit pictures in software; `runtime/win32/ddraw_pal.c` (palettized
   DirectDraw 1-7) and the DIB sections in `gdi32.c` turn them into BGRA pictures for the renderer.
+- Glide / 3dfx uses the game's original Glide renderer and a native `glide3x` API (`runtime/win32/glide3x.c`). Texture formats, palettes, chroma key, color/alpha combiners, blending, clipping and framebuffer transfers become Metal commands and shaders. It implements the single-texture-unit subset this game uses; it is not a general 3dfx emulator.
 - The Direct3D renderer is DirectX 6 (`IDirectDraw4` with `IDirect3D3`, `IDirect3DDevice3`, viewports, textures,
   vertex buffers). The game projects the scene itself, isometric or in perspective, and draws pre-transformed textured
   triangles; `ddraw_pal.c` turns its textures (16-bit, colour keys) into GPU textures and its draws, states and

@@ -29,7 +29,7 @@ float d2zoom_max(void)
         const char *e = getenv("D2_ZOOM_MAX"), *f = getenv("D2_ZOOM"), *r = getenv("D2_RENDERER");
         m = e ? (float)atof(e) : 1; if (f && atof(f) > m) m = (float)atof(f);
         if (!(m >= 1)) m = 1; if (m > 3) m = 3;
-        if (!r || strcmp(r, "d3d")) m = 1;                            /* the zoomed draws are Direct3D's (ddraw_pal.c) */
+        if (!r || (strcmp(r, "d3d") && strcmp(r, "glide"))) m = 1;                            /* the zoomed draws are Direct3D's (ddraw_pal.c) */
     }
     return m;
 }
