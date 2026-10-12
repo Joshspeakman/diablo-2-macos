@@ -9,9 +9,9 @@
 #include "../../src/dsr/dsr_proto.h"
 uint8_t *G_MEM;uint32_t w32_process_heap,dsr_d3d9_w,dsr_d3d9_h;
 static DSRRenderer *renderer;static uint32_t command[4*1024*1024],op,bytes,nextid,nextmem=0x100000;
-static unsigned uploads;
+static unsigned uploads,glows;
 uint32_t *cmd_begin(uint32_t o,uint32_t size){assert(size<=sizeof command);op=o;bytes=size;return command;}
-void cmd_end(void){if(op==DSR_SURFACE_UPLOAD)uploads++;dsr_renderer_exec(renderer,op,(const uint8_t *)command,bytes);}
+void cmd_end(void){if(op==DSR_SURFACE_UPLOAD)uploads++;if(op==DSR_GLIDE_GLOW)glows++;dsr_renderer_exec(renderer,op,(const uint8_t *)command,bytes);}
 uint32_t next_object_id(void){return ++nextid;}
 void surface_id_free(uint32_t id){(void)id;}
 uint32_t heap_alloc(uint32_t heap,uint32_t flags,uint32_t size){uint32_t at=nextmem;nextmem+=(size+15)&~15u;assert(nextmem<32*1024*1024);return at;}
@@ -107,6 +107,15 @@ int main(int argc,char **argv){
  assert(API(grSstWinOpen,7,0u,8u,0u,0u,0u,2u,0u)==1);
  assert(gl.width==1066&&rt_r32(G_MEM,0x7c9138)==800);
  API(grBufferClear,3,0u,0u,0u);assert(rt_r32(G_MEM,0x7c9138)==1066);
+ // Only a paired world pass emits glow, once, even with both end hooks.
+ API(grSstWinClose,1,1u);setenv("D2_GLIDE_GLOW","subtle",1);test_width=0;
+ API(grSstWinOpen,7,0u,8u,0u,0u,0u,2u,0u);
+ rt_w32(G_MEM,0x7a6a70,0x7000);rt_w32(G_MEM,0x7a0640,0x8000);
+ rt_w32(G_MEM,0x8004,0);rt_w32(G_MEM,0x8008,0);rt_w32(G_MEM,0x800c,800);rt_w32(G_MEM,0x8010,560);
+ glide_world_end();assert(glows==0);glide_world_begin();glide_world_end();glide_world_end();assert(glows==1);
+ API(grSstWinClose,1,1u);glide_world_begin();glide_world_end();assert(glows==1);
+ unsetenv("D2_GLIDE_GLOW");API(grSstWinOpen,7,0u,8u,0u,0u,0u,2u,0u);
+ glide_world_begin();glide_world_end();assert(glows==1);
  API(grGlideShutdown,0);dsr_renderer_flush(renderer,1);free(G_MEM);
  }
  puts("Glide ABI, palette/chroma, color and alpha blending, HD rasterization, LFB and reopen passed");return 0;

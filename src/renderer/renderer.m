@@ -34,6 +34,7 @@ struct DSRRenderer {
     id<MTLDevice> dev; id<MTLCommandQueue> q; id<MTLLibrary> lib;
     Surf s[MAXSURF];
     uint32_t glide[16]; int32_t scissor[4];
+    id<MTLRenderPipelineState> glow_pso[3]; id<MTLTexture> glow_tex[2]; int glow_failed;
     uint32_t rs[256], tss[8][32]; float xf[32][16]; float vp[6]; uint32_t tex[8];
     uint32_t rt, ds;
     id<MTLCommandBuffer> cb, last_cb; id<MTLRenderCommandEncoder> enc; id<MTLBlitCommandEncoder> blit; uint32_t enc_rt, enc_ds, encoders; uint64_t cb_bytes;
@@ -686,6 +687,67 @@ static void clear(DSRRenderer *r, const uint32_t *p, uint32_t size)
             fprintf(stderr, "after clear %d: px %08x, cb status %ld err %s\n", n, *(uint32_t *)b.contents, (long)r->last_cb.status, r->last_cb.error.localizedDescription.UTF8String ?: "-"); } }
 }
 
+/* Bloom the world before the original game draws the interface. Half game
+ * resolution intermediates keep cost/radius stable at Retina render scales.
+ * Each pass ends before its output is sampled; never sample the active target. */
+static void glide_glow(DSRRenderer *r, const uint32_t *p, uint32_t size)
+{
+    if (size < 24 || !r->glide[0] || p[0] != r->rt || p[1] < 1 || p[1] > 2 || r->glow_failed) return;
+    Surf *s=surf(r,p[0]);
+    if (!s || !s->w || !s->h || s->tex.pixelFormat != MTLPixelFormatBGRA8Unorm || !(s->tex.usage & MTLTextureUsageRenderTarget)) return;
+    const int32_t *rect=(const int32_t *)(p+2);
+    int32_t left=MAX(0,rect[0]), top=MAX(0,rect[1]), right=MIN((int32_t)s->w,rect[2]), bottom=MIN((int32_t)s->h,rect[3]);
+    if (right<=left || bottom<=top) return;
+    if (!r->glow_pso[0]) {
+        NSArray<NSString *> *names=@[@"fs_glow_extract",@"fs_glow_blur",@"fs_glow_composite"];
+        for (int i=0;i<3;i++) {
+            NSError *err=nil; MTLRenderPipelineDescriptor *d=[MTLRenderPipelineDescriptor new];
+            d.vertexFunction=[r->lib newFunctionWithName:@"vs_present"]; d.fragmentFunction=[r->lib newFunctionWithName:names[i]];
+            d.colorAttachments[0].pixelFormat=i==2?MTLPixelFormatBGRA8Unorm:MTLPixelFormatRGBA16Float;
+            if (i==2) {
+                d.colorAttachments[0].blendingEnabled=YES;
+                d.colorAttachments[0].sourceRGBBlendFactor=MTLBlendFactorOne;
+                d.colorAttachments[0].destinationRGBBlendFactor=MTLBlendFactorOneMinusSourceColor;
+                d.colorAttachments[0].writeMask=MTLColorWriteMaskRed|MTLColorWriteMaskGreen|MTLColorWriteMaskBlue;
+            }
+            r->glow_pso[i]=[r->dev newRenderPipelineStateWithDescriptor:d error:&err];
+            if (!r->glow_pso[i]) { fprintf(stderr,"Glide glow disabled: %s\n",err.localizedDescription.UTF8String); r->glow_failed=1; return; }
+        }
+    }
+    NSUInteger w=(s->w+1)/2,h=(s->h+1)/2;
+    if (r->glow_tex[0].width!=w || r->glow_tex[0].height!=h) {
+        MTLTextureDescriptor *d=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA16Float width:w height:h mipmapped:NO];
+        d.usage=MTLTextureUsageRenderTarget|MTLTextureUsageShaderRead; d.storageMode=MTLStorageModePrivate;
+        id<MTLTexture> a=[r->dev newTextureWithDescriptor:d],b=[r->dev newTextureWithDescriptor:d];
+        if (!a || !b) { fprintf(stderr,"Glide glow disabled: cannot allocate targets\n"); r->glow_failed=1; return; }
+        r->glow_tex[0]=a;r->glow_tex[1]=b;
+    }
+    struct { float rect[4], step[2], strength, unused; } u={
+        {left/(float)s->w,top/(float)s->h,right/(float)s->w,bottom/(float)s->h},{0,0},p[1]==1?0.40f:0.80f,0};
+    float radius=p[1]==1?1.0f:1.5f;
+    end_enc(r);
+    for (int pass=0;pass<4;pass++) {
+        id<MTLTexture> src=pass==0?s->tex:pass==2?r->glow_tex[1]:r->glow_tex[0];
+        id<MTLTexture> dst=pass==3?s->tex:r->glow_tex[pass==1?1:0];
+        MTLRenderPassDescriptor *d=[MTLRenderPassDescriptor renderPassDescriptor];
+        d.colorAttachments[0].texture=dst;d.colorAttachments[0].loadAction=pass==3?MTLLoadActionLoad:MTLLoadActionDontCare;
+        d.colorAttachments[0].storeAction=MTLStoreActionStore;
+        id<MTLRenderCommandEncoder> e=[cmdbuf(r) renderCommandEncoderWithDescriptor:d];
+        [e setLabel:@"Glide world glow"];
+        [e setRenderPipelineState:r->glow_pso[pass==0?0:pass==3?2:1]];
+        [e setFragmentTexture:src atIndex:0];
+        u.step[0]=pass==0?0.5f/w:pass==1?radius/w:0;
+        u.step[1]=pass==0?0.5f/h:pass==2?radius/h:0;
+        [e setFragmentBytes:&u length:sizeof u atIndex:0];
+        if (pass==3) {
+            NSUInteger x=(uint64_t)left*dst.width/s->w,y=(uint64_t)top*dst.height/s->h;
+            NSUInteger x1=(uint64_t)right*dst.width/s->w,y1=(uint64_t)bottom*dst.height/s->h;
+            [e setScissorRect:(MTLScissorRect){x,y,x1-x,y1-y}];
+        }
+        [e drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3]; [e endEncoding];r->encoders++;
+    }
+}
+
 void dsr_renderer_flush(DSRRenderer *r, int wait)
 {
     commit(r);
@@ -841,6 +903,7 @@ int dsr_renderer_exec(DSRRenderer *r, uint32_t op, const uint8_t *pl, uint32_t s
         } }
     switch (op) {
     case DSR_GLIDE_STATE: if (size >= sizeof r->glide) memcpy(r->glide, p, sizeof r->glide); break;
+    case DSR_GLIDE_GLOW: glide_glow(r, p, size); break;
     case DSR_SCISSOR: if (size >= sizeof r->scissor) memcpy(r->scissor, p, sizeof r->scissor); break;
     case DSR_RENDER_STATE: if (p[0] < 256) r->rs[p[0]] = p[1]; break;
     case DSR_TSS: if (p[0] < 8 && p[1] < 32) { r->tss[p[0]][p[1]] = p[2]; if (p[1] == 12) r->tss[p[0]][13] = r->tss[p[0]][14] = p[2]; } break;

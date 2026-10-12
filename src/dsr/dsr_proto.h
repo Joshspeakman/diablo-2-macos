@@ -31,5 +31,6 @@ enum {
                               float4 attributes[nverts][popcount(mask)] in slot order, u16 indices[n] (padded to 4) */
     DSR_SCISSOR,          /* int32 left, top, right, bottom; enabled by render state 174 */
     DSR_GLIDE_STATE,      /* 16 u32: enable; color/alpha (function, factor, local, other, invert); chroma enable */
+    DSR_GLIDE_GLOW,       /* u32 target, strength (1 subtle, 2 strong); int32 world rect left, top, right, bottom; before HUD */
 };
 #endif

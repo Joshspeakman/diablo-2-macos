@@ -198,6 +198,36 @@ vertex POut vs_present(uint vid [[vertex_id]])
     float2 c = float2((vid << 1) & 2, vid & 2);   // fullscreen triangle
     POut o; o.pos = float4(c * 2 - 1, 0, 1); o.uv = float2(c.x, 1 - c.y); return o;
 }
+// Optional Glide world glow, before HUD and gamma. Only bright scene pixels
+// contribute; filtering the highlights preserves their color and dark areas.
+struct GlowUni { float4 rect; float2 step; float strength; float unused; };
+fragment float4 fs_glow_extract(POut in [[stage_in]], texture2d<float> scene [[texture(0)]], constant GlowUni &u [[buffer(0)]])
+{
+    constexpr sampler linear(coord::normalized, filter::linear, address::clamp_to_edge);
+    float3 glow=0;
+    for (int y=0;y<2;y++) for (int x=0;x<2;x++) {
+        float2 uv=in.uv+(float2(x,y)-0.5)*u.step;
+        if (all(uv>=u.rect.xy) && all(uv<u.rect.zw)) {
+            float3 c=scene.sample(linear,uv).rgb;
+            glow+=c*smoothstep(0.62,0.95,max(c.r,max(c.g,c.b)));
+        }
+    }
+    return float4(glow*0.25,1);
+}
+fragment float4 fs_glow_blur(POut in [[stage_in]], texture2d<float> src [[texture(0)]], constant GlowUni &u [[buffer(0)]])
+{
+    constexpr sampler linear(coord::normalized, filter::linear, address::clamp_to_edge);
+    float3 c=src.sample(linear,in.uv).rgb*0.227027;
+    c+=(src.sample(linear,in.uv+u.step*1.384615).rgb+src.sample(linear,in.uv-u.step*1.384615).rgb)*0.316216;
+    c+=(src.sample(linear,in.uv+u.step*3.230769).rgb+src.sample(linear,in.uv-u.step*3.230769).rgb)*0.070270;
+    return float4(c,1);
+}
+fragment float4 fs_glow_composite(POut in [[stage_in]], texture2d<float> glow [[texture(0)]], constant GlowUni &u [[buffer(0)]])
+{
+    constexpr sampler linear(coord::normalized, filter::linear, address::clamp_to_edge);
+    // ONE / ONE_MINUS_SRC_COLOR yields base + glow*(1-base), preserving highlights.
+    return float4(saturate(glow.sample(linear,in.uv).rgb*u.strength),0);
+}
 // The scaling filter (PresentUni.mode), from the game's picture (src_size) to the drawable (dst_size):
 //   0 pixel: nearest texel; 1 smooth: bilinear; 2 sharp: each texel a block of whole drawable pixels (the integer part
 //   of the scale), blended only across the fractional pixel at block edges, so pixels stay square and even without

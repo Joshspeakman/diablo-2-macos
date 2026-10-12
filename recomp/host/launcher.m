@@ -342,6 +342,13 @@ static NSArray<NSDictionary *> *scaling_choices(void)
              @{@"value": @"pixel", @"label": @"Pixel", @"note": @"Nearest pixel: hard edges, uneven sizes"},
              @{@"value": @"crt", @"label": @"CRT", @"note": @"Sharp, with the scanlines of a 2000-era monitor"}];
 }
+/* Optional bloom applies only to Glide's world pass; the game draws its HUD afterward. */
+static NSArray<NSDictionary *> *glow_choices(void)
+{
+    return @[@{@"value": @"off", @"label": @"Off", @"note": @"Glide: the original lighting, without added glow"},
+             @{@"value": @"subtle", @"label": @"Subtle", @"note": @"Glide: gentle glow around bright world details"},
+             @{@"value": @"strong", @"label": @"Strong", @"note": @"Glide: wider, stronger glow · interface stays crisp"}];
+}
 /* The accelerated renderer's picture: the game's 800x600 frame, or drawn at the display's resolution (D2_RESOLUTION, host/main.m) */
 static NSArray<NSDictionary *> *resolution_choices(void)
 {
@@ -417,6 +424,9 @@ static void apply(NSDictionary<NSString *, NSString *> *v)
 {
     BOOL accelerated = [@[@"d3d", @"glide"] containsObject:v[@"video"]];
     setenv("D2_RENDERER", v[@"video"].UTF8String, 1);
+    if ([v[@"video"] isEqualToString:@"glide"] && v[@"glow"] && ![v[@"glow"] isEqualToString:@"off"])
+        setenv("D2_GLIDE_GLOW", v[@"glow"].UTF8String, 1);
+    else unsetenv("D2_GLIDE_GLOW");
     if (!accelerated || [v[@"view"] isEqualToString:@"game"]) unsetenv("D2_PERSPECTIVE"); else setenv("D2_PERSPECTIVE", v[@"view"].UTF8String, 1);
     if (accelerated) { setenv("D2_RESOLUTION", v[@"resolution"].UTF8String, 1); setenv("D2_TEXTURES", v[@"textures"].UTF8String, 1); }
     else { unsetenv("D2_RESOLUTION"); unsetenv("D2_TEXTURES"); }
@@ -551,6 +561,7 @@ int ds_launcher_run(const char *game_dir, const char *data_dir)
     DSRow *video = [DSRow new]; video.title = @"Video"; video.choices = video_choices(); video.index = index_of(video.choices, saved[@"video"] ?: @"d3d", 0);
     DSRow *view = [DSRow new]; view.title = @"View"; view.choices = view_choices(); view.index = index_of(view.choices, saved[@"view"] ?: @"on", 0);
     DSRow *scale = [DSRow new]; scale.title = @"Scaling"; scale.choices = scaling_choices(); scale.index = index_of(scale.choices, saved[@"scaling"], 0);
+    DSRow *glow = [DSRow new]; glow.title = @"Glide Glow"; glow.choices = glow_choices(); glow.index = index_of(glow.choices, saved[@"glow"], 0);
     DSRow *notch = [DSRow new]; notch.title = @"Notch"; notch.choices = notch_choices(); notch.index = index_of(notch.choices, saved[@"notch"], 0);
     DSRow *res = [DSRow new]; res.title = @"Resolution"; res.choices = resolution_choices(); res.index = index_of(res.choices, saved[@"resolution"] ?: @"display", 0);
     DSRow *texr = [DSRow new]; texr.title = @"Textures"; texr.choices = texture_choices(); texr.index = index_of(texr.choices, saved[@"textures"] ?: @"smooth", 0);
@@ -562,7 +573,7 @@ int ds_launcher_run(const char *game_dir, const char *data_dir)
     DSRow *rtr = [DSRow new]; rtr.title = @"Router"; rtr.choices = router_choices(); rtr.index = index_of(rtr.choices, saved[@"router"] ?: @"on", 0);
     __weak DSRow *wg = grp; grp.activate = ^{ NSString *g = group_panel(wg.choices[0][@"value"]); if (g) wg.choices = group_choice(g); };
     NSDictionary<NSString *, DSRow *> *rows = @{@"video": video, @"view": view, @"resolution": res, @"textures": texr, @"fps": fpsr, @"width": widr, @"zoom": zoomr,
-                                                @"scaling": scale, @"notch": notch, @"multiplayer": mp, @"group": grp, @"router": rtr};
+                                                @"scaling": scale, @"glow": glow, @"notch": notch, @"multiplayer": mp, @"group": grp, @"router": rtr};
     const char *shot = getenv("DS_LAUNCHER_SHOT");
     if (getenv("DS_NO_LAUNCHER") && !shot) {
         if (saved.count) apply(chosen(rows));
@@ -593,7 +604,7 @@ int ds_launcher_run(const char *game_dir, const char *data_dir)
         if (wzoom.index) f = [f stringByAppendingFormat:@" · Zoom %@", [wzoom.choices[wzoom.index][@"value"] stringByAppendingString:@"×"]];
         return [NSString stringWithFormat:@"%@ · %@ · %@%@", wview.choices[wview.index][@"label"], wres.choices[wres.index][@"label"], wtex.choices[wtex.index][@"label"], f];
     };
-    display.title = @"Display"; display.rows = notch_height() > 0 ? @[scale, notch] : @[scale];
+    display.title = @"Display"; display.rows = notch_height() > 0 ? @[scale, notch, glow] : @[scale, glow];
     updSec.title = @"Updates"; updSec.summary = ^NSString * { NSDictionary *c = upd.choices[upd.index]; return [c[@"note"] length] ? [NSString stringWithFormat:@"%@ · %@", c[@"label"], c[@"note"]] : c[@"label"]; };
     DSLaunchView *v = [[DSLaunchView alloc] initWithFrame:NSMakeRect(0, 0, 780, 620)];
     v.top = @[video]; v.sections = @[display, d3dSec, mpSec, updSec]; v.open = -1; v.hover = v.pressed = HIT_NONE;
