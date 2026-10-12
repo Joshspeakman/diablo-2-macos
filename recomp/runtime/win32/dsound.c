@@ -129,7 +129,7 @@ static void set_gain(Buf *b)
 }
 static inline float sample(Buf *b, uint32_t frame, int chn)
 {
-    uint32_t at = (frame % (b->size / b->align)) * b->align + (b->ch == 2 ? chn : 0) * (b->bits / 8);
+    uint32_t at = frame * b->align + (b->ch == 2 ? chn : 0) * (b->bits / 8);
     return b->bits == 16 ? (int16_t)rt_r16(G_MEM, b->mem + at) / 32768.0f : ((int)G_MEM[b->mem + at] - 128) / 128.0f;
 }
 void w32_audio_out(const float *lr, uint32_t frames, int rate, int source);         /* winmm.c: mute, level log, dump */
@@ -161,6 +161,9 @@ static OSStatus render(void *u, AudioUnitRenderActionFlags *fl, const AudioTimeS
         for (UInt32 i = 0; i < frames; i++) {
             uint32_t p0 = pos, p1 = pos + 1; float t = (float)fr;
             if (!b->looping && p1 >= nframes) p1 = p0;
+            /* Share wrapped interpolation endpoints between channels. */
+            if (p0 >= nframes) p0 %= nframes;
+            if (p1 >= nframes) p1 %= nframes;
             float l = sample(b, p0, 0) * (1 - t) + sample(b, p1, 0) * t, r = sample(b, p0, 1) * (1 - t) + sample(b, p1, 1) * t;
             if (da > 0) { b->lp_l = (1 - da) * l + da * b->lp_l; b->lp_r = (1 - da) * r + da * b->lp_r; l = b->lp_l; r = b->lp_r; }
             if (sg > 0) { float m = 0.5f * (l + r); b->lp_send = (1 - sa) * m + sa * b->lp_send; send[i] += b->lp_send * sg; }
