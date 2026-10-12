@@ -322,10 +322,11 @@ static NSArray<NSDictionary *> *notch_choices(void)
 static NSArray<NSDictionary *> *video_choices(void)
 {
     return @[@{@"value": @"ddraw", @"label": @"DirectDraw", @"note": @"The classic renderer, 800x600"},
+             @{@"value": @"glide", @"label": @"Glide / 3dfx", @"note": @"Original 3dfx graphics, rendered with Metal"},
              @{@"value": @"d3d", @"label": @"Direct3D", @"note": @"Every option below (recommended)"},
              @{@"value": @"gdi", @"label": @"Windowed Mode", @"note": @"The game's -w mode: the same picture, no cinematics"}];
 }
-/* Direct3D's view (D2_PERSPECTIVE: the game's Options -> Video -> Perspective, kept in the registry): as last chosen in
+/* The accelerated renderer's view (D2_PERSPECTIVE: the game's Options -> Video -> Perspective, kept in the registry): as last chosen in
  * the game, or set at each start */
 static NSArray<NSDictionary *> *view_choices(void)
 {
@@ -341,19 +342,19 @@ static NSArray<NSDictionary *> *scaling_choices(void)
              @{@"value": @"pixel", @"label": @"Pixel", @"note": @"Nearest pixel: hard edges, uneven sizes"},
              @{@"value": @"crt", @"label": @"CRT", @"note": @"Sharp, with the scanlines of a 2000-era monitor"}];
 }
-/* Direct3D's picture: the game's 800x600 frame, or drawn at the display's resolution (D2_RESOLUTION, host/main.m) */
+/* The accelerated renderer's picture: the game's 800x600 frame, or drawn at the display's resolution (D2_RESOLUTION, host/main.m) */
 static NSArray<NSDictionary *> *resolution_choices(void)
 {
     return @[@{@"value": @"original", @"label": @"Original", @"note": @"800x600, scaled to the display like DirectDraw"},
              @{@"value": @"display", @"label": @"Display", @"note": @"Drawn at the display's resolution: crisp edges and text"}];
 }
-/* Direct3D's textures: as the game samples them, or filtered (D2_TEXTURES, runtime/win32/ddraw_pal.c) */
+/* The accelerated renderer's textures: as the game samples them, or filtered (D2_TEXTURES, runtime/win32/ddraw_pal.c) */
 static NSArray<NSDictionary *> *texture_choices(void)
 {
     return @[@{@"value": @"sharp", @"label": @"Sharp", @"note": @"The original pixels, each an even square"},
              @{@"value": @"smooth", @"label": @"Smooth", @"note": @"Filtered: softer sprites and ground, no stair-steps"}];
 }
-/* Direct3D's frame rate (D2_FPS, runtime/win32/d2smooth.c): the game's 25, or more with movement blended between its ticks */
+/* The accelerated renderer's frame rate (D2_FPS, runtime/win32/d2smooth.c): the game's 25, or more with movement blended between its ticks */
 static NSArray<NSDictionary *> *fps_choices(void)
 {
     return @[@{@"value": @"25", @"label": @"Original", @"note": @"25 frames a second, as the game draws"},
@@ -361,14 +362,14 @@ static NSArray<NSDictionary *> *fps_choices(void)
              @{@"value": @"120", @"label": @"120", @"note": @"Smoother still, for 120 Hz displays"},
              @{@"value": @"display", @"label": @"Display", @"note": @"The display's own refresh rate"}];
 }
-/* Direct3D's width (D2_WIDTH, runtime/win32/d2wide.c): the game's 4:3, or the display's shape at the same height,
+/* The accelerated renderer's width (D2_WIDTH, runtime/win32/d2wide.c): the game's 4:3, or the display's shape at the same height,
  * showing more of the world to the sides */
 static NSArray<NSDictionary *> *width_choices(void)
 {
     return @[@{@"value": @"800", @"label": @"Original", @"note": @"4:3, with bars at the sides of a wider display"},
              @{@"value": @"display", @"label": @"Display", @"note": @"A wider view of the world, more than other players see"}];
 }
-/* Direct3D zoomed out (D2_ZOOM_MAX, runtime/win32/d2zoom.c): the mouse wheel (a trackpad: two-finger scroll or pinch) shows more of the world around you, from
+/* The accelerated renderer zoomed out (D2_ZOOM_MAX, runtime/win32/d2zoom.c): the mouse wheel (a trackpad: two-finger scroll or pinch) shows more of the world around you, from
  * the game's own view out to the farthest chosen here */
 static NSArray<NSDictionary *> *zoom_choices(void)
 {
@@ -410,18 +411,18 @@ static NSInteger index_of(NSArray<NSDictionary *> *c, NSString *v, NSInteger dfl
     for (NSUInteger k = 0; k < c.count; k++) if ([c[k][@"value"] isEqualToString:v ?: @""]) return (NSInteger)k;
     return dflt;
 }
-/* the chosen settings (row key -> value) as environment for the runtime (read later at start-up); Direct3D's only
- * with Direct3D (the game's own Perspective setting is left alone otherwise) */
+/* the chosen settings (row key -> value) as environment for the runtime (read later at start-up); The accelerated renderer's only
+ * with Direct3D or Glide (the game's own Perspective setting is left alone otherwise) */
 static void apply(NSDictionary<NSString *, NSString *> *v)
 {
-    BOOL d3d = [v[@"video"] isEqualToString:@"d3d"];
+    BOOL accelerated = [@[@"d3d", @"glide"] containsObject:v[@"video"]];
     setenv("D2_RENDERER", v[@"video"].UTF8String, 1);
-    if (!d3d || [v[@"view"] isEqualToString:@"game"]) unsetenv("D2_PERSPECTIVE"); else setenv("D2_PERSPECTIVE", v[@"view"].UTF8String, 1);
-    if (d3d) { setenv("D2_RESOLUTION", v[@"resolution"].UTF8String, 1); setenv("D2_TEXTURES", v[@"textures"].UTF8String, 1); }
+    if (!accelerated || [v[@"view"] isEqualToString:@"game"]) unsetenv("D2_PERSPECTIVE"); else setenv("D2_PERSPECTIVE", v[@"view"].UTF8String, 1);
+    if (accelerated) { setenv("D2_RESOLUTION", v[@"resolution"].UTF8String, 1); setenv("D2_TEXTURES", v[@"textures"].UTF8String, 1); }
     else { unsetenv("D2_RESOLUTION"); unsetenv("D2_TEXTURES"); }
-    if (d3d && ![v[@"fps"] isEqualToString:@"25"]) setenv("D2_FPS", v[@"fps"].UTF8String, 1); else unsetenv("D2_FPS");
-    if (d3d && ![v[@"width"] isEqualToString:@"800"]) setenv("D2_WIDTH", v[@"width"].UTF8String, 1); else unsetenv("D2_WIDTH");
-    if (d3d && v[@"zoom"] && ![v[@"zoom"] isEqualToString:@"1"]) setenv("D2_ZOOM_MAX", v[@"zoom"].UTF8String, 1); else unsetenv("D2_ZOOM_MAX");
+    if (accelerated && ![v[@"fps"] isEqualToString:@"25"]) setenv("D2_FPS", v[@"fps"].UTF8String, 1); else unsetenv("D2_FPS");
+    if (accelerated && ![v[@"width"] isEqualToString:@"800"]) setenv("D2_WIDTH", v[@"width"].UTF8String, 1); else unsetenv("D2_WIDTH");
+    if (accelerated && v[@"zoom"] && ![v[@"zoom"] isEqualToString:@"1"]) setenv("D2_ZOOM_MAX", v[@"zoom"].UTF8String, 1); else unsetenv("D2_ZOOM_MAX");
     setenv("D2_MULTIPLAYER", (v[@"multiplayer"] ?: @"internet").UTF8String, 1);
     if (v[@"group"].length) setenv("D2_P2P_GROUP", v[@"group"].UTF8String, 1); else unsetenv("D2_P2P_GROUP");
     if ([v[@"multiplayer"] isEqualToString:@"lan"] || [v[@"router"] isEqualToString:@"off"]) setenv("DS_NO_PORTMAP", "1", 1);
@@ -583,11 +584,11 @@ int ds_launcher_run(const char *game_dir, const char *data_dir)
         NSString *g = wg.choices[0][@"value"];
         return [NSString stringWithFormat:@"Internet game list · %@ · %@", g.length ? @"Private group" : @"Public", wrtr.index ? @"Router left alone" : @"Port opened when hosting"];
     };
-    d3dSec.title = @"Direct3D"; d3dSec.rows = @[view, res, texr, fpsr, widr, zoomr];
+    d3dSec.title = @"3D graphics"; d3dSec.rows = @[view, res, texr, fpsr, widr, zoomr];
     __weak DSRow *wvid = video, *wview = view;
     __weak DSRow *wres = res, *wtex = texr, *wfps = fpsr, *wwid = widr, *wzoom = zoomr;
     d3dSec.summary = ^NSString * {
-        if (![wvid.choices[wvid.index][@"value"] isEqualToString:@"d3d"]) return @"Used when Video is Direct3D";
+        if (![@[@"d3d", @"glide"] containsObject:wvid.choices[wvid.index][@"value"]]) return @"Used with Direct3D or Glide / 3dfx";
         NSString *f = [NSString stringWithFormat:@"%@%@", wfps.index ? [NSString stringWithFormat:@" · %@ fps", wfps.choices[wfps.index][@"label"]] : @"", wwid.index ? @" · Wide" : @""];
         if (wzoom.index) f = [f stringByAppendingFormat:@" · Zoom %@", [wzoom.choices[wzoom.index][@"value"] stringByAppendingString:@"×"]];
         return [NSString stringWithFormat:@"%@ · %@ · %@%@", wview.choices[wview.index][@"label"], wres.choices[wres.index][@"label"], wtex.choices[wtex.index][@"label"], f];

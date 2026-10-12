@@ -50,7 +50,7 @@ IMPL(kernel32, GetVersionExA)
     RET(1, 1);
 }
 static const char *known_dlls[] = {"kernel32", "user32", "gdi32", "advapi32", "ddraw", "dsound", "dinput", "dinput8",
-    "winmm", "ole32", "oleaut32", "version", "wsock32", "ws2_32", "mss32", "binkw32", "ntdll", "shell32", "comctl32", "imm32", "shfolder", "dbghelp", 0};
+    "winmm", "ole32", "oleaut32", "version", "wsock32", "ws2_32", "mss32", "binkw32", "ntdll", "shell32", "comctl32", "imm32", "shfolder", "dbghelp", "glide3x", 0};
 #define MODULE_BASE 0x70000000u
 static int dll_index(const char *name)
 {

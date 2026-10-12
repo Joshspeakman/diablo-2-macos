@@ -23,6 +23,10 @@ void rt_hook(Ctx *c, uint32_t addr)
         { void d2bnet_startup(void); d2bnet_startup(); }                  /* the menus' Battle.net buttons (d2bnet.c) */
         const char *r = getenv("D2_RENDERER"); uint32_t cfg = c->ebp - 0x4d8;
         if (r && !strcmp(r, "d3d")) break;
+        if (r && !strcmp(r, "glide")) {
+            G_MEM[cfg + 8] = 0; G_MEM[cfg + 10] = 1;
+            G_MEM[cfg + 11] = G_MEM[cfg + 12] = G_MEM[cfg + 13] = 0; break;
+        }
         int gdi = r && !strcmp(r, "gdi");
         G_MEM[cfg + 8] = (uint8_t)gdi; G_MEM[cfg + 10] = 0; G_MEM[cfg + 11] = 0; G_MEM[cfg + 12] = 0; G_MEM[cfg + 13] = 0;
         break;
@@ -32,7 +36,8 @@ void rt_hook(Ctx *c, uint32_t addr)
     case 0x00434790: case 0x004348a8: case 0x0043490e: case 0x00435d80: case 0x0042ffe0: case 0x00431e00: { void d2bnet_event(Ctx *c, uint32_t a); d2bnet_event(c, addr); break; }
     /* wider than 4:3 (D2_WIDTH, d2wide.c) */
     case 0x004f55aa: if (d2wide_width()) rt_w32(G_MEM, c->edx, (uint32_t)d2wide_width()); break;   /* the 800x600 modes' size */
-    case 0x00509c3f: case 0x0051126f: case 0x006b5037: case 0x006c7b75:        /* the renderers' screen size, as each sets it */
+    case 0x00509c3f: break; /* Glide expands after the original texture pool allocation (glide3x.c). */
+    case 0x0051126f: case 0x006b5037: case 0x006c7b75:        /* the renderers' screen size, as each sets it */
         if (d2wide_width() && rt_r32(G_MEM, 0x7c9138) == 800) rt_w32(G_MEM, 0x7c9138, (uint32_t)d2wide_width());
         break;
     case 0x0044caed: if (d2wide_width() && c->eax == 3) c->eax = 0; break;     /* both side panels open: the world still shows between them */

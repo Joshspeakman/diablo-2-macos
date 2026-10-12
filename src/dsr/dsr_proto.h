@@ -29,5 +29,7 @@ enum {
     DSR_PROG_CONST,        /* u32 count, float4 registers[count]: the bound program's parameters */
     DSR_DRAW_PROG,         /* u32 prim, u32 attribute mask, u32 nverts, u32 nindices, u32 flags (1 pretransformed),
                               float4 attributes[nverts][popcount(mask)] in slot order, u16 indices[n] (padded to 4) */
+    DSR_SCISSOR,          /* int32 left, top, right, bottom; enabled by render state 174 */
+    DSR_GLIDE_STATE,      /* 16 u32: enable; color/alpha (function, factor, local, other, invert); chroma enable */
 };
 #endif
