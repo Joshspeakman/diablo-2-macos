@@ -18,7 +18,8 @@ static struct {
     uint32_t combine[16], constant, chroma, palette[256], generation;
     uint32_t layout[0x53]; unsigned char enabled[0x53];
     uint32_t source, filter, lfb, lfb_size, lfb_type, lfb_mode, lfb_origin;
-    int open, dirty;
+    int open, dirty, glow, world;
+    int32_t world_rect[4];
 } gl;
 typedef struct {
     uint32_t address, id, w, h, format, generation;
@@ -136,6 +137,26 @@ static void draw_vertices(uint32_t kind,uint32_t count,uint32_t base,uint32_t st
 }
 IMPL(glide3x, grGlideInit) {if(gl.open||ntextures)close_glide();memset(&gl,0,sizeof gl);gl.generation=1;RET(0,0);}
 IMPL(glide3x, grGlideShutdown) {close_glide();RET(0,0);}
+/* The existing world-pass hooks bracket the original scene, before any HUD.
+ * Capture the unzoomed view rectangle; zoom temporarily changes guest sizes. */
+void glide_world_begin(void) {
+    gl.world=0;
+    if(!gl.open||!gl.glow)return;
+    uint32_t view=rt_r32(G_MEM,0x7a0640);
+    if(!view||!rt_r32(G_MEM,0x7a6a70))return;
+    for(unsigned k=0;k<4;k++)gl.world_rect[k]=(int32_t)rt_r32(G_MEM,view+4+4*k);
+    gl.world=1;
+}
+void glide_world_end(void) {
+    if(!gl.world)return;
+    gl.world=0;
+    if(!gl.open||!gl.glow)return;
+    state();
+    uint32_t *p=cmd_begin(DSR_GLIDE_GLOW,24);p[0]=gl.rt;p[1]=gl.glow;
+    memcpy(p+2,gl.world_rect,sizeof gl.world_rect);cmd_end();
+    static int logged;
+    if(!logged && getenv("W32_DDLOG")) {fprintf(stderr,"glide: world glow %d, rectangle %d,%d-%d,%d\n",gl.glow,gl.world_rect[0],gl.world_rect[1],gl.world_rect[2],gl.world_rect[3]);logged=1;}
+}
 IMPL(glide3x, grSstSelect) {RET(0,1);}
 IMPL(glide3x, grSstWinOpen) {
     if(gl.open)close_glide();
@@ -145,6 +166,8 @@ IMPL(glide3x, grSstWinOpen) {
     int d2wide_width(void);if(gl.width==800&&d2wide_width())gl.width=d2wide_width();
     dsr_d3d9_w=gl.width;dsr_d3d9_h=gl.height;
     gl.rt=surface(gl.width,gl.height,1);gl.open=1;gl.combine[0]=1;gl.dirty=1;
+    const char *glow=getenv("D2_GLIDE_GLOW");
+    gl.glow=glow&&!strcmp(glow,"subtle")?1:glow&&!strcmp(glow,"strong")?2:0;gl.world=0;
     uint32_t *p=cmd_begin(DSR_MODE,8);p[0]=gl.width;p[1]=gl.height;cmd_end();bind_rt();
     rs(7,0);rs(14,0);rs(22,1);rs(27,1);rs(19,2);rs(20,1);rs(168,15);rs(28,0);rs(174,0);rs(206,0);
     tss(16,1);tss(17,1);tss(18,0);tss(13,3);tss(14,3);

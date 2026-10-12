@@ -131,6 +131,7 @@ with the remastered Direct3D picture, and the original look is a few switches aw
 | 3D graphics → Width | Original (4:3) · **Display** (the display's shape at the same height: more of the world to the sides; others in multiplayer see less) |
 | 3D graphics → Zoom | Off (the game's own view) · Wheel or Pinch, 1.5× · **Wheel or Pinch, 2×** (wheel down or pinch to see more of the world, wheel up or spread the fingers to come back) |
 | Display → Scaling | **Sharp** (square pixels, smoothed only at their edges) · Smooth (bilinear) · Pixel (nearest) · CRT (sharp with scanlines) |
+| Display → Glide Glow | **Off** (original lighting) · Subtle · Strong: optional colored bloom around bright world details, only with Glide / 3dfx |
 | Display → Notch (only on a display with a notch) | **Hide the Notch** (the picture below the camera, in macOS full screen) · Around the Notch (the whole display, the camera over the picture's top centre) |
 | Multiplayer → Type | **Internet (Game List)** (the Battle.net buttons lead to the online game list) · LAN (Classic) (the game's own TCP/IP, as it was: type the host's address) |
 | Multiplayer → Group | **Public** (anyone with this port sees your hosted games) · Private: *name* (press to set a group name: only copies with the same name see each other's games) |
@@ -139,6 +140,8 @@ with the remastered Direct3D picture, and the original look is a few switches aw
 
 The 3D graphics settings apply to both Direct3D and Glide / 3dfx. The game's own options (gamma, contrast, sound and music
 volume, light quality, ...) are in its Options menu and are kept between sessions.
+
+Glide Glow runs after the world is drawn and before the interface and gamma correction. It spreads bright scene colors into a small surrounding halo; distant dark areas and the HUD retain their original appearance. It is an optional bloom effect, not new dynamic lights or shadows. Off performs no glow passes. Direct3D, DirectDraw, menus and cinematics do not receive this effect.
 
 ## Graphics
 
@@ -305,6 +308,7 @@ recomp/tests/run_tests.sh "/path/to/Diablo II"   # and the game end to end (afte
   every pixel is checked for each scaling filter (whole-pixel blocks, blends only at block edges, bilinear, scanline
   shading) and for the gamma ramp.
 - **Glide** (`glide_metal_test.m`): the guest Glide ABI through Metal, including palette changes, chroma key, separate color/alpha blending, clipping, display scaling, framebuffer movie transfers and reopening at a new size.
+- **Glide glow** (`glide_glow_test.m`): localized colored bloom, unchanged distant darkness and interface, strength choices, 1×/2× render scaling, gamma applied once, and isolation from other renderers. For gameplay comparisons, `DS_SHOT_PRESENTED=1` includes the final display-pass gamma in development screenshots; the default captures the raw framebuffer.
 - **Launch window** (`launcher_test.m`): its settings reach the runtime and are remembered; it draws with the art.
 - **EAX reverb** (`eax_reverb_test.c`): measured from impulse responses: the decay time (0.8–5 s, ±20%), the faster
   treble decay with a low decay HF ratio, nothing before the reflections delay, levels in millibels (−600 mB = −6 dB of
@@ -370,6 +374,7 @@ Notes on Diablo II:
   its Direct3D renderer, or Glide / 3dfx (`glide`). The first two draw 8-bit pictures in software; `runtime/win32/ddraw_pal.c` (palettized
   DirectDraw 1-7) and the DIB sections in `gdi32.c` turn them into BGRA pictures for the renderer.
 - Glide / 3dfx uses the game's original Glide renderer and a native `glide3x` API (`runtime/win32/glide3x.c`). Texture formats, palettes, chroma key, color/alpha combiners, blending, clipping and framebuffer transfers become Metal commands and shaders. It implements the single-texture-unit subset this game uses; it is not a general 3dfx emulator.
+- Optional Glide bloom (`D2_GLIDE_GLOW=subtle|strong`, absent/off by default) uses the existing world-pass hooks, with a rectangle captured before zoom alters the view. A `DSR_GLIDE_GLOW` command extracts highlights, blurs them in two half-game-resolution targets, and composites them before the HUD. Target resolution and halo size are independent of Retina scaling. The screen blend bounds highlight brightness; no depth-based lighting or emissive-material metadata is inferred.
 - The Direct3D renderer is DirectX 6 (`IDirectDraw4` with `IDirect3D3`, `IDirect3DDevice3`, viewports, textures,
   vertex buffers). The game projects the scene itself, isometric or in perspective, and draws pre-transformed textured
   triangles; `ddraw_pal.c` turns its textures (16-bit, colour keys) into GPU textures and its draws, states and

@@ -47,6 +47,14 @@ int main(int argc, char **argv)
         [@{@"video": @"invalid", @"scaling": @"hq4x", @"notch": @"hide"} writeToFile:[dir stringByAppendingPathComponent:@"launcher.plist"] atomically:YES];
         CHECK(ds_launcher_run("/nonexistent", dir.UTF8String) == 1);
         CHECK([env("D2_RENDERER") isEqualToString:@"ddraw"]); CHECK([env("DSR_FILTER") isEqualToString:@"sharp"]);
+        /* Glow persists as a choice, but never leaks into another renderer. */
+        for (NSString *renderer in @[@"glide", @"d3d", @"ddraw", @"gdi"]) for (NSString *glow in @[@"off", @"subtle", @"strong", @"invalid"]) {
+            [@{@"video": renderer, @"glow": glow} writeToFile:[dir stringByAppendingPathComponent:@"launcher.plist"] atomically:YES];
+            setenv("D2_GLIDE_GLOW", "strong", 1);
+            CHECK(ds_launcher_run("/nonexistent", dir.UTF8String) == 1);
+            BOOL on=[renderer isEqualToString:@"glide"] && [@[@"subtle", @"strong"] containsObject:glow];
+            CHECK(on ? [env("D2_GLIDE_GLOW") isEqualToString:glow] : env("D2_GLIDE_GLOW")==nil);
+        }
         /* the window drawn: without art, and with the game's art when a folder is given */
         unsetenv("DS_NO_LAUNCHER");
         for (int pass = 0; pass < (argc > 1 ? 2 : 1); pass++) {

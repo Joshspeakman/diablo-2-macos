@@ -50,8 +50,8 @@ void rt_hook(Ctx *c, uint32_t addr)
         if (d2smooth_on() && rt_r32(G_MEM, 0x7a6a70)) rt_w32(G_MEM, 0x7a0704, d2smooth_frame_due() ? 0 : 1);
         break;
     /* zoomed out (d2zoom.c) */
-    case 0x0044c9ab: { void d2zoom_world_begin(void); d2zoom_world_begin(); break; }
-    case 0x0044cafd: case 0x0044cb4f: { void d2zoom_world_end(void); d2zoom_world_end(); break; }
+    case 0x0044c9ab: { void glide_world_begin(void), d2zoom_world_begin(void); glide_world_begin(); d2zoom_world_begin(); break; }
+    case 0x0044cafd: case 0x0044cb4f: { void glide_world_end(void), d2zoom_world_end(void); d2zoom_world_end(); glide_world_end(); break; }
     case 0x004de860: { void d2zoom_rooms(Ctx *c); d2zoom_rooms(c); break; }
     case 0x00462d00: { void d2zoom_click(Ctx *c); d2zoom_click(c); break; }
     case 0x0046745f: { void d2zoom_hover_box(void); d2zoom_hover_box(); break; }

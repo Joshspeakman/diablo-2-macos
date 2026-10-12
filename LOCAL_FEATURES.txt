@@ -7,4 +7,6 @@ Choose Video -> Glide / 3dfx. The 3D graphics group also applies to Glide: persp
 
 The guest uses the original game's Glide renderer. Native Glide entry points translate its textures, palettes, chroma, color/alpha combiners, blending, clipping and movie framebuffer transfers into Metal work. This implements the single-TMU subset Diablo II uses.
 
+Display -> Glide Glow: Off (default), Subtle or Strong. Adds colored bloom around bright world details in Glide. Applied before the interface and gamma; menus and cinematics are excluded. This is bloom, not new dynamic lights or shadows. Off retains the original image and has no glow-pass overhead.
+
 Validation: real Glide gameplay at 800x600 and 1066x600/display scaling, existing Direct3D gameplay, guest-ABI-to-Metal fixture, launcher preference round trips and nine runtime regression groups.

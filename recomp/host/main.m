@@ -111,6 +111,14 @@ static void *render_thread(void *arg)
                         }
                         if ((long)fno == shot_at) {
                             id<MTLTexture> tex = dsr_renderer_presented(r); dsr_renderer_flush(r, 1);
+                            /* Optional final display-pass capture, including gamma. Existing
+                             * palette-exact tests keep the raw framebuffer by default. */
+                            if (tex && getenv("DS_SHOT_PRESENTED")) {
+                                MTLTextureDescriptor *desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm width:tex.width height:tex.height mipmapped:NO];
+                                desc.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+                                id<MTLTexture> shown = [layer.device newTextureWithDescriptor:desc];
+                                if (shown) { dsr_renderer_present_to(r, shown); dsr_renderer_flush(r, 1); tex = shown; }
+                            }
                             if (tex && tex.pixelFormat == MTLPixelFormatBGRA8Unorm) {
                                 NSUInteger tw = tex.width, th = tex.height;
                                 id<MTLBuffer> buf = [layer.device newBufferWithLength:tw * th * 4 options:MTLResourceStorageModeShared];

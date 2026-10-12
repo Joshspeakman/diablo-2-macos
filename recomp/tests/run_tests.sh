@@ -21,6 +21,9 @@ clang -O1 -g -fobjc-arc -fsanitize=address,undefined -framework Metal -framework
 step "Glide guest ABI and Metal rendering"
 clang -O1 -g -fobjc-arc -Wno-unused-function -framework Metal -framework Foundation -framework QuartzCore -framework CoreGraphics "$HERE/glide_metal_test.m" "$ROOT/src/renderer/renderer.m" -o "$T/glide_metal_test" \
   && (cd "$ROOT/src/renderer" && "$T/glide_metal_test") || FAIL=1
+step "Glide world glow"
+clang -O1 -g -fobjc-arc -framework Metal -framework Foundation -framework QuartzCore "$HERE/glide_glow_test.m" "$ROOT/src/renderer/renderer.m" -o "$T/glide_glow_test" \
+  && (cd "$ROOT/src/renderer" && "$T/glide_glow_test") || FAIL=1
 step "upload ring bounds"
 clang -O1 -g -fobjc-arc -fsanitize=address,undefined -framework Metal -framework Foundation -framework QuartzCore "$HERE/renderer_ring_test.m" -o "$T/renderer_ring_test" \
   && (cd "$ROOT/src/renderer" && "$T/renderer_ring_test") || FAIL=1
