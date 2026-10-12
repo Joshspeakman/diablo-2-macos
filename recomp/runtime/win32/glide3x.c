@@ -266,7 +266,8 @@ IMPL(glide3x, grLfbLock) {
             uint32_t v=rgba[y*gl.width+x],n=(gl.lfb_origin?gl.height-1-y:y)*gl.width+x;
             if(bpp==4)rt_w32(G_MEM,gl.lfb+n*4,v);
             else {uint16_t a=mode==0?((v>>8)&0xf800)|((v>>5)&0x7e0)|((v>>3)&31):((v>>9)&0x7c00)|((v>>6)&0x3e0)|((v>>3)&31)|(mode==2?0x8000:0);rt_w16(G_MEM,gl.lfb+n*2,a);}
-        }free(rgba);
+        }
+        free(rgba);
     }
     rt_w32(G_MEM,info+4,gl.lfb);rt_w32(G_MEM,info+8,gl.width*bpp);rt_w32(G_MEM,info+12,mode);rt_w32(G_MEM,info+16,gl.lfb_origin);RET(1,6);
 }
@@ -280,7 +281,8 @@ IMPL(glide3x, grLfbUnlock) {
                 if(gl.lfb_mode==0){r=(a>>11)*255/31;g=((a>>5)&63)*255/63;}
                 else {r=((a>>10)&31)*255/31;g=((a>>5)&31)*255/31;}v=0xff000000u|(r<<16)|(g<<8)|b;}
             p[6+y*gl.width+x]=v;
-        }cmd_end();
+        }
+        cmd_end();
         if(ARG(1)==0)dsr_present(c,gl.rt); /* writes to the visible front buffer (movies) */
     }RET(1,2);
 }
