@@ -231,9 +231,10 @@ static void b_Release(Ctx *c)
     Buf *b = B(ARG(0)); if (!b) RET(0, 1);
     int r = --b->refs;
     if (!r) {
-        b->playing = 0; pthread_mutex_lock(&lock); b->used = 0;
-        if (b->mem_refs && --*b->mem_refs == 0) { free(b->mem_refs); if (b->mem) heap_free(w32_process_heap, b->mem); }   /* the last user of the samples */
-        b->mem_refs = 0;
+        b->playing = 0; pthread_mutex_lock(&lock);
+        /* not freed here: render() walks bufs[] without the lock and may be mixing this slot right now; new_buf reclaims it
+           (frees the samples, zeroes the slot) once two render passes have gone by */
+        b->retired = 1; b->retired_pass = atomic_load_explicit(&render_pass, memory_order_acquire);
         pthread_mutex_unlock(&lock); LOG("release buffer\n");
     }
     RET(r, 1);
