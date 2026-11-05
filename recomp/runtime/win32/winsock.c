@@ -281,16 +281,17 @@ IMPL(wsock32, ord18)
         for (uint32_t i = 0; i < cnt; i++) {
             uint32_t s = rt_r32(G_MEM, sets[k] + 4 + 4 * i); int j = 0; while (j < n && who[j] != s) j++;
             short re = j < n ? pf[j].revents : 0;
-            int connecting = 0;
-            if (k == 2 && (re & POLLERR)) { pthread_mutex_lock(&s_lock); if (s >= SBASE && s < SBASE + MAXS) connecting = S[s - SBASE].connecting; pthread_mutex_unlock(&s_lock); }
-            int hit = k == 0 ? (re & (POLLIN | POLLHUP | POLLERR)) != 0 : k == 1 ? (re & POLLOUT) != 0
-                    : ((re & POLLPRI) && !(re & POLLHUP)) || ((re & POLLERR) && connecting);
+            int connecting = 0;   /* macOS never sets POLLERR for a failed non-blocking connect: it arrives as POLLHUP, so test both */
+            if (k >= 1 && (re & (POLLERR | POLLHUP))) { pthread_mutex_lock(&s_lock); if (s >= SBASE && s < SBASE + MAXS) connecting = S[s - SBASE].connecting; pthread_mutex_unlock(&s_lock); }
+            int hit = k == 0 ? (re & (POLLIN | POLLHUP | POLLERR)) != 0
+                    : k == 1 ? (re & POLLOUT) && !(re & (POLLHUP | POLLERR))                      /* a failed connect is never writable */
+                    : ((re & POLLPRI) && !(re & POLLHUP)) || (connecting && (re & (POLLHUP | POLLERR)));
             if (hit) { rt_w32(G_MEM, sets[k] + 4 + 4 * out, s); out++; total++; }
         }
         rt_w32(G_MEM, sets[k], out);
     }
-    for (int i = 0; i < n; i++)                                       /* a pending connect that is now writable has finished */
-        if ((pf[i].revents & POLLOUT) && !(pf[i].revents & (POLLERR | POLLHUP)) && who[i] >= SBASE && who[i] < SBASE + MAXS) {
+    for (int i = 0; i < n; i++)                                       /* a pending connect has finished: writable (success) or hung up (failure, reported once above) */
+        if ((pf[i].revents & (POLLOUT | POLLERR | POLLHUP)) && who[i] >= SBASE && who[i] < SBASE + MAXS) {
             pthread_mutex_lock(&s_lock); S[who[i] - SBASE].connecting = 0; pthread_mutex_unlock(&s_lock);
         }
     RET(total, 5);
