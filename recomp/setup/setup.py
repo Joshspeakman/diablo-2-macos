@@ -267,6 +267,13 @@ class Run:
                 self.tool(step, game, os.path.join(self.root, "art"))
             except Stop:
                 pass
+        url = self.cfg.get("art_url")
+        banner = os.path.join(self.root, "art", "banner.jpg")
+        if url and not os.path.exists(banner):
+            os.makedirs(os.path.dirname(banner), exist_ok=True)
+            subprocess.run(["/usr/bin/curl", "-fsSL", "-m", "30", "-o", banner + ".part", url], capture_output=True)
+            if os.path.exists(banner + ".part"):
+                os.replace(banner + ".part", banner)
         bar.finish()
 
 
