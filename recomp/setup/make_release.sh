@@ -38,6 +38,8 @@ python3 - "$S/game.json" "$R/game.json" "$CODE" "$TAG" <<'PY'
 import json, sys
 c = json.load(open(sys.argv[1])); c["code"] = sys.argv[3]; c["release"] = sys.argv[4]
 for k in ("build", "out", "rt_cflags", "rt_opt", "host_cflags", "frameworks", "link_flags", "binary", "icon_label", "icon_color", "local_network", "release_repo", "bundle_id"): c.pop(k, None)
+import os
+if os.environ.get("TEST_EXTRA_EXE_SHA"): c["exe_sha256"][os.environ["TEST_EXTRA_EXE_SHA"]] = "test copy"   # a test build only: a release never sets this
 json.dump(c, open(sys.argv[2], "w"), indent=1)
 PY
 echo "== address lists"
