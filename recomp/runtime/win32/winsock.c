@@ -161,7 +161,10 @@ IMPL(wsock32, ord1)                                     /* accept(s, addr, len*)
     if (k < MAXS) { S[k].fd = n + 1; S[k].nb = 0; S[k].connecting = 0; }
     pthread_mutex_unlock(&s_lock);
     if (k == MAXS) { close(n); w32_set_last_error(c, 10024); RET(INVALID_SOCKET_, 3); }
-    fcntl(n, F_SETFL, fcntl(n, F_GETFL) & ~O_NONBLOCK);  /* Windows: the new socket starts blocking */
+    {   /* Windows: the new socket has the listening socket's properties, non-blocking mode included (BSD accept doesn't copy it) */
+        int lnb = fcntl(fd, F_GETFL) & O_NONBLOCK, fl = fcntl(n, F_GETFL);
+        fcntl(n, F_SETFL, lnb ? fl | O_NONBLOCK : fl & ~O_NONBLOCK);
+    }
     to_guest(&a, ARG(1), ARG(2));
     RET(SBASE + (uint32_t)k, 3);
 }
