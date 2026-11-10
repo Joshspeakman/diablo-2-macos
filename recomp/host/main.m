@@ -111,6 +111,14 @@ static void *render_thread(void *arg)
                         }
                         if ((long)fno == shot_at) {
                             id<MTLTexture> tex = dsr_renderer_presented(r); dsr_renderer_flush(r, 1);
+                            /* Optional final display-pass capture, including gamma. Existing
+                             * palette-exact tests keep the raw framebuffer by default. */
+                            if (tex && getenv("DS_SHOT_PRESENTED")) {
+                                MTLTextureDescriptor *desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm width:tex.width height:tex.height mipmapped:NO];
+                                desc.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+                                id<MTLTexture> shown = [layer.device newTextureWithDescriptor:desc];
+                                if (shown) { dsr_renderer_present_to(r, shown); dsr_renderer_flush(r, 1); tex = shown; }
+                            }
                             if (tex && tex.pixelFormat == MTLPixelFormatBGRA8Unorm) {
                                 NSUInteger tw = tex.width, th = tex.height;
                                 id<MTLBuffer> buf = [layer.device newBufferWithLength:tw * th * 4 options:MTLResourceStorageModeShared];
@@ -803,7 +811,12 @@ int main(int argc, char **argv)
             else if (!strcmp(argv[k], "--game")) game = argv[k + 1];
             else if (!strcmp(argv[k], "--data")) data = argv[k + 1];
         }
+#ifdef DS_EASY_INSTALL
+        int ds_easy_install(const char **, const char **, const char **);   /* setup/setup_ui.m: returns only when the game is ready */
+        if (!exe && !game && !data) { if (ds_easy_install(&exe, &game, &data) < 0) bundle_launch(argv[0], &exe, &game, &data); }
+#else
         if (!exe && !game && !data) bundle_launch(argv[0], &exe, &game, &data);
+#endif
         if (!exe || !game || !data) { fprintf(stderr, "usage: Diablo2Native --exe <Game.exe> --game <Diablo II folder> --data <data folder>\n"); return 1; }
         NSString *bin = [[NSString stringWithUTF8String:argv[0]] stringByDeletingLastPathComponent];
         snprintf(dsr_snapshot_path, sizeof dsr_snapshot_path, "%s/dsr_snapshot.bin", bin.UTF8String);
@@ -845,9 +858,9 @@ int main(int argc, char **argv)
                 int w = (int)lround(600.0 * w32_screen_w / (w32_screen_h > 0 ? w32_screen_h : 600)) & ~1;
                 char v[16]; snprintf(v, sizeof v, "%d", w < 800 ? 800 : w > 2400 ? 2400 : w); setenv("D2_WIDTH", v, 1);
             }
-            if (!ren || strcmp(ren, "d3d")) unsetenv("D2_WIDTH");
+            if (!ren || (strcmp(ren, "d3d") && strcmp(ren, "glide"))) unsetenv("D2_WIDTH");
             int game_w = getenv("D2_WIDTH") && atoi(getenv("D2_WIDTH")) > 800 ? atoi(getenv("D2_WIDTH")) : 800;
-            if (res && !strcmp(res, "display") && ren && !strcmp(ren, "d3d") && !getenv("DSR_RENDER_SCALE")) {
+            if (res && !strcmp(res, "display") && ren && (!strcmp(ren, "d3d") || !strcmp(ren, "glide")) && !getenv("DSR_RENDER_SCALE")) {
                 double f = fmin(w32_screen_w * w32_screen_scale / game_w, w32_screen_h * w32_screen_scale / 600.0);
                 int smooth = getenv("D2_TEXTURES") && !strcmp(getenv("D2_TEXTURES"), "smooth");
                 f = fmin(smooth ? f : floor(f), 4.0);
@@ -859,7 +872,7 @@ int main(int argc, char **argv)
                 long hz = 60; if (@available(macOS 12.0, *)) hz = NSScreen.mainScreen.maximumFramesPerSecond;
                 char v[16]; snprintf(v, sizeof v, "%ld", hz > 25 ? hz : 60); setenv("D2_FPS", v, 1);
             }
-            if (!ren || strcmp(ren, "d3d")) unsetenv("D2_FPS");                 /* DirectDraw and windowed: the game's 25 */
+            if (!ren || (strcmp(ren, "d3d") && strcmp(ren, "glide"))) unsetenv("D2_FPS");                 /* DirectDraw and windowed: the game's 25 */
             /* d2smooth already schedules each draw. The generic auto limiter starts at 60 and only upgrades
              * after ten seconds of headroom; it would hold back 120/Display and spin a second time per frame.
              * Keep an explicit DSR_FPSCAP override for diagnostics. Menus retain the game's own cadence. */

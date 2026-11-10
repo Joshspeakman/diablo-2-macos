@@ -24,10 +24,10 @@ int main(int argc, char **argv)
         CHECK([env("D2_RENDERER") isEqualToString:@"gdi"]); CHECK([env("DSR_FILTER") isEqualToString:@"crt"]); CHECK([env("DS_NOTCH") isEqualToString:@"around"]);
         CHECK(env("D2_PERSPECTIVE") == nil);                                   /* no view saved: the game's choice */
         /* Direct3D with each view: Isometric and Perspective are set at start, the game's choice leaves its option alone */
-        for (NSString *view in @[@"off", @"on", @"game"]) {
-            [@{@"video": @"d3d", @"view": view, @"scaling": @"sharp", @"notch": @"hide"} writeToFile:[dir stringByAppendingPathComponent:@"launcher.plist"] atomically:YES];
+        for (NSString *renderer in @[@"glide", @"d3d"]) for (NSString *view in @[@"off", @"on", @"game"]) {
+            [@{@"video": renderer, @"view": view, @"scaling": @"sharp", @"notch": @"hide"} writeToFile:[dir stringByAppendingPathComponent:@"launcher.plist"] atomically:YES];
             CHECK(ds_launcher_run("/nonexistent", dir.UTF8String) == 1);
-            CHECK([env("D2_RENDERER") isEqualToString:@"d3d"]);
+            CHECK([env("D2_RENDERER") isEqualToString:renderer]);
             CHECK([view isEqualToString:@"game"] ? env("D2_PERSPECTIVE") == nil : [env("D2_PERSPECTIVE") isEqualToString:view]);
         }
         /* Direct3D's picture when none of it was saved: the most of each (the display's resolution and refresh rate, smooth
@@ -44,9 +44,17 @@ int main(int argc, char **argv)
         CHECK(ds_launcher_run("/nonexistent", dir.UTF8String) == 1);
         CHECK([env("D2_RENDERER") isEqualToString:@"ddraw"] && env("D2_PERSPECTIVE") == nil && env("D2_RESOLUTION") == nil && env("D2_TEXTURES") == nil && env("D2_FPS") == nil && env("D2_WIDTH") == nil);
         /* an unknown saved value falls back to the first choice */
-        [@{@"video": @"glide", @"scaling": @"hq4x", @"notch": @"hide"} writeToFile:[dir stringByAppendingPathComponent:@"launcher.plist"] atomically:YES];
+        [@{@"video": @"invalid", @"scaling": @"hq4x", @"notch": @"hide"} writeToFile:[dir stringByAppendingPathComponent:@"launcher.plist"] atomically:YES];
         CHECK(ds_launcher_run("/nonexistent", dir.UTF8String) == 1);
         CHECK([env("D2_RENDERER") isEqualToString:@"ddraw"]); CHECK([env("DSR_FILTER") isEqualToString:@"sharp"]);
+        /* Glow persists as a choice, but never leaks into another renderer. */
+        for (NSString *renderer in @[@"glide", @"d3d", @"ddraw", @"gdi"]) for (NSString *glow in @[@"off", @"subtle", @"strong", @"invalid"]) {
+            [@{@"video": renderer, @"glow": glow} writeToFile:[dir stringByAppendingPathComponent:@"launcher.plist"] atomically:YES];
+            setenv("D2_GLIDE_GLOW", "strong", 1);
+            CHECK(ds_launcher_run("/nonexistent", dir.UTF8String) == 1);
+            BOOL on=[renderer isEqualToString:@"glide"] && [@[@"subtle", @"strong"] containsObject:glow];
+            CHECK(on ? [env("D2_GLIDE_GLOW") isEqualToString:glow] : env("D2_GLIDE_GLOW")==nil);
+        }
         /* the window drawn: without art, and with the game's art when a folder is given */
         unsetenv("DS_NO_LAUNCHER");
         for (int pass = 0; pass < (argc > 1 ? 2 : 1); pass++) {

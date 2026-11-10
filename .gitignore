@@ -21,3 +21,6 @@ recomp/out/
 *.d2s
 *.key
 *.bik
+
+# Local Python tools
+/recomp/.venv
