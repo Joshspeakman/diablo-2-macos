@@ -105,7 +105,37 @@ static float4 op(int o, float4 x, float4 y, float4 diffuse, float4 texel, float4
 /* Pipelines for draws without alpha testing are built with kAlphaTest false: a shader that can discard keeps the GPU
  * from removing hidden surfaces before shading (Apple GPUs' HSR) for every draw that uses it. */
 constant bool kAlphaTest [[function_constant(0)]];
-fragment float4 fs_main(VOut in [[stage_in]], constant Uniforms &u [[buffer(1)]],
+constant bool kGlide [[function_constant(1)]];
+static float4 glideCombine(constant uint *glideState, int offset, float4 iterated, float4 texel, float4 constantColor, bool alpha) {
+    int fn=glideState[offset], factor=glideState[offset+1];
+    float4 local=glideState[offset+2]==0?iterated:constantColor;
+    int source=glideState[offset+3];
+    float4 other=source==0?iterated:source==1?texel:constantColor;
+    float4 f=float4(0);
+    int base=factor&7;
+    if(base==1)f=local;
+    else if(base==2)f=float4(other.a);
+    else if(base==3)f=float4(local.a);
+    else if(base==4)f=float4(texel.a);
+    else if(base==5)f=texel;
+    if((factor&8)!=0)f=1.0-f;
+    if(alpha){local=float4(local.a);other=float4(other.a);f=float4(f.a);}
+    float4 result=float4(0);
+    if(fn==1)result=local;
+    else if(fn==2)result=float4(local.a);
+    else if(fn==3)result=f*other;
+    else if(fn==4)result=f*other+local;
+    else if(fn==5)result=f*other+float4(local.a);
+    else if(fn==6)result=f*(other-local);
+    else if(fn==7)result=f*(other-local)+local;
+    else if(fn==8)result=f*(other-local)+float4(local.a);
+    else if(fn==9)result=(1.0-f)*local;
+    else if(fn==16)result=-f*local+float4(local.a);
+    if(glideState[offset+4]!=0)result=1.0-result;
+    return clamp(result,0.0,1.0);
+}
+
+fragment float4 fs_main(VOut in [[stage_in]], constant Uniforms &u [[buffer(1)]], constant uint *glide [[buffer(2)]],
                         texture2d<float> t0 [[texture(0)]], sampler s0 [[sampler(0)]],
                         texture2d<float> t1 [[texture(1)]], sampler s1 [[sampler(1)]])
 {
@@ -114,7 +144,12 @@ fragment float4 fs_main(VOut in [[stage_in]], constant Uniforms &u [[buffer(1)]]
     if ((u.a0.z & 0xffff0000) == 0x20000) uv0 = (u.a0.w & 0x100) ? in.tcproj.xy / in.tcproj.z : in.tcproj.xy;   // TCI_CAMERASPACEPOSITION
     float4 texel = u.misc.z ? t0.sample(s0, uv0) : float4(1);
     if (u.xrgb.x) texel.a = 1;
-    if (u.c0.x != 1) {
+    if (kGlide) {
+        if (glide[11] && texel.a < 0.5) discard_fragment();
+        float4 rgb = glideCombine(glide, 1, diffuse, texel, u.tfactor, false);
+        float4 a = glideCombine(glide, 6, diffuse, texel, u.tfactor, true);
+        current = float4(rgb.rgb, a.a);
+    } else if (u.c0.x != 1) {
         float4 c = op(u.c0.x, arg(u.c0.y, diffuse, current, texel, u.tfactor), arg(u.c0.z, diffuse, current, texel, u.tfactor), diffuse, texel, u.tfactor, current);
         float4 a = u.c0.w == 1 ? current : op(u.c0.w, arg(u.a0.x, diffuse, current, texel, u.tfactor), arg(u.a0.y, diffuse, current, texel, u.tfactor), diffuse, texel, u.tfactor, current);
         current = float4(c.rgb, a.a);
@@ -162,6 +197,36 @@ vertex POut vs_present(uint vid [[vertex_id]])
 {
     float2 c = float2((vid << 1) & 2, vid & 2);   // fullscreen triangle
     POut o; o.pos = float4(c * 2 - 1, 0, 1); o.uv = float2(c.x, 1 - c.y); return o;
+}
+// Optional Glide world glow, before HUD and gamma. Only bright scene pixels
+// contribute; filtering the highlights preserves their color and dark areas.
+struct GlowUni { float4 rect; float2 step; float strength; float unused; };
+fragment float4 fs_glow_extract(POut in [[stage_in]], texture2d<float> scene [[texture(0)]], constant GlowUni &u [[buffer(0)]])
+{
+    constexpr sampler linear(coord::normalized, filter::linear, address::clamp_to_edge);
+    float3 glow=0;
+    for (int y=0;y<2;y++) for (int x=0;x<2;x++) {
+        float2 uv=in.uv+(float2(x,y)-0.5)*u.step;
+        if (all(uv>=u.rect.xy) && all(uv<u.rect.zw)) {
+            float3 c=scene.sample(linear,uv).rgb;
+            glow+=c*smoothstep(0.62,0.95,max(c.r,max(c.g,c.b)));
+        }
+    }
+    return float4(glow*0.25,1);
+}
+fragment float4 fs_glow_blur(POut in [[stage_in]], texture2d<float> src [[texture(0)]], constant GlowUni &u [[buffer(0)]])
+{
+    constexpr sampler linear(coord::normalized, filter::linear, address::clamp_to_edge);
+    float3 c=src.sample(linear,in.uv).rgb*0.227027;
+    c+=(src.sample(linear,in.uv+u.step*1.384615).rgb+src.sample(linear,in.uv-u.step*1.384615).rgb)*0.316216;
+    c+=(src.sample(linear,in.uv+u.step*3.230769).rgb+src.sample(linear,in.uv-u.step*3.230769).rgb)*0.070270;
+    return float4(c,1);
+}
+fragment float4 fs_glow_composite(POut in [[stage_in]], texture2d<float> glow [[texture(0)]], constant GlowUni &u [[buffer(0)]])
+{
+    constexpr sampler linear(coord::normalized, filter::linear, address::clamp_to_edge);
+    // ONE / ONE_MINUS_SRC_COLOR yields base + glow*(1-base), preserving highlights.
+    return float4(saturate(glow.sample(linear,in.uv).rgb*u.strength),0);
 }
 // The scaling filter (PresentUni.mode), from the game's picture (src_size) to the drawable (dst_size):
 //   0 pixel: nearest texel; 1 smooth: bilinear; 2 sharp: each texel a block of whole drawable pixels (the integer part

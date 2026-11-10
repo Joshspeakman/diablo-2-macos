@@ -30,6 +30,7 @@ typedef struct Buf {
     int ch, bits, rate, align; double gain_l, gain_r; int32_t vol, pan; uint32_t freq;
     _Atomic uint32_t play; double frac; _Atomic int playing, looping;
     int *mem_refs;                                                     /* buffers sharing mem (DuplicateSoundBuffer) */
+    int retired; uint32_t retired_pass;                                /* released by the game; the slot is reused two render passes later */
     int is3d, mode; float pos[3], vel[3], mind, maxd; uint32_t cone[2]; float coneor[3]; int32_t conevol;
     EaxBuffer eax; float eax1_mix;                                     /* EAX 2.0 buffer properties; EAX 1.0 reverb mix */
     float lp_l, lp_r, lp_send;                                         /* the direct path's and the room send's HF filters */
@@ -129,13 +130,15 @@ static void set_gain(Buf *b)
 }
 static inline float sample(Buf *b, uint32_t frame, int chn)
 {
-    uint32_t at = (frame % (b->size / b->align)) * b->align + (b->ch == 2 ? chn : 0) * (b->bits / 8);
+    uint32_t at = frame * b->align + (b->ch == 2 ? chn : 0) * (b->bits / 8);
     return b->bits == 16 ? (int16_t)rt_r16(G_MEM, b->mem + at) / 32768.0f : ((int)G_MEM[b->mem + at] - 128) / 128.0f;
 }
 void w32_audio_out(const float *lr, uint32_t frames, int rate, int source);         /* winmm.c: mute, level log, dump */
+static _Atomic uint32_t render_pass;              /* one per render(): a slot released in pass N is not reused before pass N + 2 */
 static OSStatus render(void *u, AudioUnitRenderActionFlags *fl, const AudioTimeStamp *ts, UInt32 bus, UInt32 frames, AudioBufferList *io)
 {
     (void)u; (void)fl; (void)ts; (void)bus;
+    atomic_fetch_add_explicit(&render_pass, 1, memory_order_acq_rel);
     float *out = io->mBuffers[0].mData; memset(out, 0, frames * 8);
     if (frames > slice_max) slice_max = frames;
     if (frames <= SLICE) memset(send, 0, frames * sizeof(float));
@@ -161,6 +164,9 @@ static OSStatus render(void *u, AudioUnitRenderActionFlags *fl, const AudioTimeS
         for (UInt32 i = 0; i < frames; i++) {
             uint32_t p0 = pos, p1 = pos + 1; float t = (float)fr;
             if (!b->looping && p1 >= nframes) p1 = p0;
+            /* Share wrapped interpolation endpoints between channels. */
+            if (p0 >= nframes) p0 %= nframes;
+            if (p1 >= nframes) p1 %= nframes;
             float l = sample(b, p0, 0) * (1 - t) + sample(b, p1, 0) * t, r = sample(b, p0, 1) * (1 - t) + sample(b, p1, 1) * t;
             if (da > 0) { b->lp_l = (1 - da) * l + da * b->lp_l; b->lp_r = (1 - da) * r + da * b->lp_r; l = b->lp_l; r = b->lp_r; }
             if (sg > 0) { float m = 0.5f * (l + r); b->lp_send = (1 - sa) * m + sa * b->lp_send; send[i] += b->lp_send * sg; }
@@ -228,9 +234,10 @@ static void b_Release(Ctx *c)
     Buf *b = B(ARG(0)); if (!b) RET(0, 1);
     int r = --b->refs;
     if (!r) {
-        b->playing = 0; pthread_mutex_lock(&lock); b->used = 0;
-        if (b->mem_refs && --*b->mem_refs == 0) { free(b->mem_refs); if (b->mem) heap_free(w32_process_heap, b->mem); }   /* the last user of the samples */
-        b->mem_refs = 0;
+        b->playing = 0; pthread_mutex_lock(&lock);
+        /* not freed here: render() walks bufs[] without the lock and may be mixing this slot right now; new_buf reclaims it
+           (frees the samples, zeroes the slot) once two render passes have gone by */
+        b->retired = 1; b->retired_pass = atomic_load_explicit(&render_pass, memory_order_acquire);
         pthread_mutex_unlock(&lock); LOG("release buffer\n");
     }
     RET(r, 1);
@@ -317,7 +324,14 @@ static void d_Release(Ctx *c) { int r = --ds_refs; RET(r < 0 ? 0 : r, 1); }
 static uint32_t new_buf(Buf **out)
 {
     pthread_mutex_lock(&lock);
-    int k = 0; while (k < NBUF && bufs[k].used) k++;
+    uint32_t pass = atomic_load_explicit(&render_pass, memory_order_acquire); int k = 0;
+    for (; k < NBUF; k++) {
+        Buf *b = &bufs[k]; if (!b->used) break;
+        if (b->retired && (!au || pass - b->retired_pass >= 2)) {              /* released, and every render() that could have seen it has returned */
+            if (b->mem_refs && --*b->mem_refs == 0) { free(b->mem_refs); if (b->mem) heap_free(w32_process_heap, b->mem); }   /* the last user of the samples */
+            b->mem_refs = 0; b->used = 0; b->retired = 0; break;
+        }
+    }
     if (k == NBUF) { pthread_mutex_unlock(&lock); static int once; if (!once++) fprintf(stderr, "dsound: all %d buffers in use\n", NBUF); return 0; }
     Buf *b = &bufs[k]; uint32_t keep = b->obj; memset(b, 0, sizeof *b); b->used = 1; b->refs = 1; b->mind = 1; b->maxd = 1e9f; set_gain(b);
     eax_buffer_defaults(b);
