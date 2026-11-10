@@ -6,6 +6,7 @@
 // restarts into the normal launcher. An update that changes the game code runs the same setup again on its own.
 #import <Cocoa/Cocoa.h>
 #import <CommonCrypto/CommonDigest.h>
+#import "theme.h"
 #include <dlfcn.h>
 #include <signal.h>
 #include <stdlib.h>
@@ -92,21 +93,62 @@ static void restart_app(NSDictionary *cfg)
     execv(self, av);
 }
 
+@interface ArtView : NSView            /* the frosted stage: the picture, the game's name, and the glass panel everything sits on */
+@property ThStyle style; @property (copy) NSString *gameTitle; @property NSImage *soft, *blurred;
+- (void)usePicture:(NSImage *)img;
+@end
+@implementation ArtView
+- (void)usePicture:(NSImage *)img
+{
+    self.soft = th_frost(img, 320) ?: img; self.blurred = th_frost(img, 70) ?: img; self.needsDisplay = YES;
+    for (NSView *v in self.subviews) v.needsDisplay = YES;
+}
+- (void)drawRect:(NSRect)d
+{
+    NSRect b = self.bounds; th_stage(self.style, b, self.soft, NSMakePoint(NSMidX(b), 270));
+    th_title(self.style, self.gameTitle, @"NATIVE EDITION", NSMakeRect(0, b.size.height - 110, b.size.width, 96), 44);
+    th_glass(NSMakeRect(50, 100, b.size.width - 100, 334), 14, th_rgba(0.05, 0.04, 0.05, 0.26), th_accent(self.style, 0.8), 1.5, self.blurred, b);
+}
+@end
+static NSRect window_in(NSView *v, ArtView *art) { return [v convertRect:art.bounds fromView:art]; }
+@interface ThemeButton : NSControl     /* a launcher button on the glass */
+@property ThStyle style; @property (copy) NSString *title; @property BOOL primary, hover, down; @property (copy) void (^onPress)(void); @property (weak) ArtView *art;
+@end
+@implementation ThemeButton
+- (void)updateTrackingAreas { for (NSTrackingArea *a in self.trackingAreas) [self removeTrackingArea:a]; [self addTrackingArea:[[NSTrackingArea alloc] initWithRect:self.bounds options:NSTrackingMouseEnteredAndExited | NSTrackingActiveInKeyWindow owner:self userInfo:nil]]; }
+- (void)mouseEntered:(NSEvent *)e { self.hover = YES; self.needsDisplay = YES; }
+- (void)mouseExited:(NSEvent *)e { self.hover = NO; self.needsDisplay = YES; }
+- (void)mouseDown:(NSEvent *)e { self.down = YES; self.needsDisplay = YES; }
+- (void)mouseUp:(NSEvent *)e { self.down = NO; self.needsDisplay = YES; if (NSPointInRect([self convertPoint:e.locationInWindow fromView:nil], self.bounds) && self.onPress) self.onPress(); }
+- (void)drawRect:(NSRect)d { th_button(self.style, self.bounds, self.title, self.primary, self.hover, self.down, self.art.blurred, window_in(self, self.art)); }
+- (BOOL)acceptsFirstMouse:(NSEvent *)e { return YES; }
+@end
+@interface ThemeBar : NSView           /* the progress bar */
+@property ThStyle style; @property double doubleValue; @property (weak) ArtView *art;
+@end
+@implementation ThemeBar
+- (void)drawRect:(NSRect)d
+{
+    th_glass(self.bounds, 8, th_rgba(1, 1, 1, 0.05), nil, 1, self.art.blurred, window_in(self, self.art));
+    NSRect f = NSInsetRect(self.bounds, 2, 2); f.size.width *= self.doubleValue / 100; if (f.size.width < 8) return;
+    NSBezierPath *p = [NSBezierPath bezierPathWithRoundedRect:f xRadius:6 yRadius:6]; [th_accent(self.style, 1) setFill]; [p fill];
+    [NSGraphicsContext saveGraphicsState]; [p addClip]; [[[NSGradient alloc] initWithStartingColor:th_rgba(1, 1, 1, 0.28) endingColor:th_rgba(0, 0, 0, 0.14)] drawInRect:f angle:-90]; [NSGraphicsContext restoreGraphicsState];
+}
+@end
 @interface DropZone : NSView
 @property (copy) void (^onDrop)(NSString *path);
 @property (copy) NSString *line;
-@property BOOL hot, enabled;
+@property BOOL hot, enabled; @property ThStyle style; @property (weak) ArtView *art;
 @end
 @implementation DropZone
 - (instancetype)initWithFrame:(NSRect)r { if ((self = [super initWithFrame:r])) { [self registerForDraggedTypes:@[NSPasteboardTypeFileURL]]; _enabled = YES; } return self; }
 - (void)drawRect:(NSRect)d
 {
-    NSBezierPath *p = [NSBezierPath bezierPathWithRoundedRect:NSInsetRect(self.bounds, 3, 3) xRadius:14 yRadius:14];
-    [[NSColor colorWithWhite:1 alpha:self.hot ? 0.13 : 0.05] setFill]; [p fill];
-    CGFloat dash[2] = {9, 7}; [p setLineDash:dash count:2 phase:0]; p.lineWidth = 2;
-    [[NSColor colorWithWhite:1 alpha:self.hot ? 0.9 : 0.35] setStroke]; [p stroke];
+    NSRect g = NSInsetRect(self.bounds, 2, 2);
+    th_glass(g, 10, self.hot ? [th_accent(self.style, 0.34) colorWithAlphaComponent:0.34] : th_rgba(1, 1, 1, 0.05), self.hot ? th_accent(self.style, 1) : th_rgba(1, 1, 1, 0.22), self.hot ? 2 : 1, self.art.blurred, window_in(self, self.art));
     NSMutableParagraphStyle *st = [NSMutableParagraphStyle new]; st.alignment = NSTextAlignmentCenter;
-    NSDictionary *at = @{NSFontAttributeName: [NSFont systemFontOfSize:17 weight:NSFontWeightMedium], NSForegroundColorAttributeName: [NSColor colorWithWhite:0.92 alpha:1], NSParagraphStyleAttributeName: st};
+    NSShadow *sh = [NSShadow new]; sh.shadowColor = th_rgba(0, 0, 0, 0.7); sh.shadowBlurRadius = 4;
+    NSDictionary *at = @{NSFontAttributeName: th_font(self.style, 20, YES), NSForegroundColorAttributeName: th_text(self.style), NSParagraphStyleAttributeName: st, NSShadowAttributeName: sh};
     NSRect b = self.bounds; CGFloat h = [self.line boundingRectWithSize:NSMakeSize(b.size.width - 60, 200) options:NSStringDrawingUsesLineFragmentOrigin attributes:at].size.height;
     [self.line drawInRect:NSMakeRect(30, (b.size.height - h) / 2, b.size.width - 60, h + 2) withAttributes:at];
 }
@@ -124,50 +166,66 @@ static void restart_app(NSDictionary *cfg)
 @end
 @implementation SetupController {
     NSDictionary *_cfg; NSString *_root, *_inbox, *_found, *_declined;
-    NSWindow *_win; NSTextField *_title, *_body, *_note; DropZone *_zone; NSProgressIndicator *_bar;
-    NSButton *_primary, *_secondary, *_tertiary; NSTask *_task; NSTimer *_scan; BOOL _busy, _updating, _cancelled;
+    NSWindow *_win; NSTextField *_title, *_body, *_note; DropZone *_zone; ThemeBar *_bar;
+    ThemeButton *_primary, *_secondary, *_tertiary; ThStyle _st; ArtView *_art; NSTask *_task; NSTimer *_scan; BOOL _busy, _updating, _cancelled;
     NSDate *_began; void (^_onPrimary)(void), (^_onSecondary)(void), (^_onTertiary)(void);
 }
-- (NSTextField *)label:(NSRect)r size:(CGFloat)s weight:(NSFontWeight)w white:(CGFloat)c
+- (NSTextField *)label:(NSRect)r font:(NSFont *)f color:(NSColor *)c
 {
-    NSTextField *t = [NSTextField wrappingLabelWithString:@""]; t.frame = r; t.font = [NSFont systemFontOfSize:s weight:w];
-    t.textColor = [NSColor colorWithWhite:c alpha:1]; t.alignment = NSTextAlignmentCenter; t.selectable = NO; return t;
+    NSTextField *t = [NSTextField wrappingLabelWithString:@""]; t.frame = r; t.font = f; t.textColor = c; t.alignment = NSTextAlignmentCenter; t.selectable = NO; t.drawsBackground = NO; return t;
 }
-- (NSButton *)button:(NSRect)r action:(SEL)a
+- (ThemeButton *)themeButton:(NSRect)r primary:(BOOL)p
 {
-    NSButton *b = [NSButton buttonWithTitle:@"" target:self action:a]; b.frame = r; b.controlSize = NSControlSizeLarge; b.bezelStyle = NSBezelStyleRounded; return b;
+    ThemeButton *b = [[ThemeButton alloc] initWithFrame:r]; b.style = _st; b.primary = p; b.art = _art; return b;
 }
 - (void)buildWindow
 {
-    _win = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 620, 460) styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable backing:NSBackingStoreBuffered defer:NO];
-    _win.title = _cfg[@"name"]; _win.backgroundColor = [NSColor colorWithWhite:0.11 alpha:1]; _win.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
-    _win.releasedWhenClosed = NO; [_win center];
-    NSView *v = _win.contentView; v.wantsLayer = YES; v.layer.backgroundColor = [NSColor colorWithWhite:0.11 alpha:1].CGColor;
-    _title = [self label:NSMakeRect(40, 382, 540, 44) size:28 weight:NSFontWeightBold white:1]; [v addSubview:_title];
-    _body = [self label:NSMakeRect(50, 308, 520, 66) size:14 weight:NSFontWeightRegular white:0.72]; [v addSubview:_body];
-    _zone = [[DropZone alloc] initWithFrame:NSMakeRect(50, 112, 520, 186)]; [v addSubview:_zone];
+    _st = th_style(_cfg[@"style"]);
+    NSRect full = NSMakeRect(0, 0, 800, 560);
+    _win = [[NSWindow alloc] initWithContentRect:full styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable backing:NSBackingStoreBuffered defer:NO];
+    _win.title = _cfg[@"name"]; _win.backgroundColor = NSColor.blackColor; _win.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua]; _win.releasedWhenClosed = NO; [_win center];
+    _art = [[ArtView alloc] initWithFrame:full]; _art.style = _st; _art.gameTitle = _cfg[@"title"] ?: [_cfg[@"name"] uppercaseString]; [_art usePicture:th_scene(_st, 800, 560, 2)]; _win.contentView = _art;
+    NSView *v = _art;
+    _title = [self label:NSMakeRect(80, 384, 640, 36) font:th_font(_st, 25, YES) color:th_text(_st)]; [v addSubview:_title];
+    _body = [self label:NSMakeRect(90, 324, 620, 56) font:th_font(_st, 15, NO) color:th_text(_st)]; [v addSubview:_body];
+    _zone = [[DropZone alloc] initWithFrame:NSMakeRect(90, 156, 620, 162)]; _zone.style = _st; _zone.art = _art; [v addSubview:_zone];
     __weak SetupController *me = self; _zone.onDrop = ^(NSString *p) { [me tryPath:p]; };
-    _bar = [[NSProgressIndicator alloc] initWithFrame:NSMakeRect(60, 214, 500, 20)]; _bar.indeterminate = NO; _bar.minValue = 0; _bar.maxValue = 100; _bar.hidden = YES; [v addSubview:_bar];
-    _note = [self label:NSMakeRect(50, 66, 520, 38) size:13 weight:NSFontWeightRegular white:0.72]; [v addSubview:_note];
-    _primary = [self button:NSMakeRect(390, 20, 180, 36) action:@selector(primary:)]; _primary.keyEquivalent = @"\r"; [v addSubview:_primary];
-    _secondary = [self button:NSMakeRect(220, 20, 165, 36) action:@selector(secondary:)]; [v addSubview:_secondary];
-    _tertiary = [self button:NSMakeRect(50, 20, 165, 36) action:@selector(tertiary:)]; [v addSubview:_tertiary];
+    _bar = [[ThemeBar alloc] initWithFrame:NSMakeRect(100, 222, 600, 22)]; _bar.style = _st; _bar.art = _art; _bar.hidden = YES; [v addSubview:_bar];
+    _note = [self label:NSMakeRect(90, 108, 620, 42) font:th_font(_st, 13, NO) color:th_dim(_st)]; [v addSubview:_note];
+    _tertiary = [self themeButton:NSMakeRect(50, 30, 200, 54) primary:NO]; [v addSubview:_tertiary];
+    _secondary = [self themeButton:NSMakeRect(300, 30, 200, 54) primary:NO]; [v addSubview:_secondary];
+    _primary = [self themeButton:NSMakeRect(550, 30, 200, 54) primary:YES]; [v addSubview:_primary];
+    _primary.onPress = ^{ SetupController *s = me; if (s->_onPrimary) s->_onPrimary(); };
+    _secondary.onPress = ^{ SetupController *s = me; if (s->_onSecondary) s->_onSecondary(); };
+    _tertiary.onPress = ^{ SetupController *s = me; if (s->_onTertiary) s->_onTertiary(); };
 }
-- (void)primary:(id)s { if (_onPrimary) _onPrimary(); }
-- (void)secondary:(id)s { if (_onSecondary) _onSecondary(); }
-- (void)tertiary:(id)s { if (_onTertiary) _onTertiary(); }
-- (void)button:(NSButton *)b title:(NSString *)t { b.title = t ?: @""; b.hidden = t == nil; }
+/* the store's art, as the launcher uses it: from the file if an earlier run saved it, else fetched in the background. Offline, the drawn scene stays */
+- (void)loadPicture
+{
+    NSString *url = _cfg[@"art_url"], *dest = [_root stringByAppendingPathComponent:@"art/banner.jpg"]; ArtView *art = _art;
+    NSImage *have = [[NSImage alloc] initWithContentsOfFile:dest];
+    if (have.isValid) { [art usePicture:have]; return; }
+    if (!url.length) return;
+    [[NSURLSession.sharedSession dataTaskWithURL:[NSURL URLWithString:url] completionHandler:^(NSData *d, NSURLResponse *r, NSError *e) {
+        if (e || d.length < 50000 || ((NSHTTPURLResponse *)r).statusCode != 200) return;
+        NSImage *img = [[NSImage alloc] initWithData:d]; if (!img.isValid) return;
+        [NSFileManager.defaultManager createDirectoryAtPath:dest.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:nil];
+        [d writeToFile:dest atomically:YES];
+        dispatch_async(dispatch_get_main_queue(), ^{ [art usePicture:img]; });
+    }] resume];
+}
+- (void)button:(ThemeButton *)b title:(NSString *)t { b.title = t ?: @""; b.hidden = t == nil; b.needsDisplay = YES; }
 - (void)showWaiting:(NSString *)problem
 {
     _busy = NO; _found = nil; _zone.hidden = NO; _zone.enabled = YES; _bar.hidden = YES;
-    _title.stringValue = [NSString stringWithFormat:@"Set Up %@", _cfg[@"name"]];
+    _title.stringValue = @"Set Up";
     _body.stringValue = [NSString stringWithFormat:@"This app uses your own copy of the game. Nothing else to install.\n%@", _cfg[@"where"]];
     _zone.line = [NSString stringWithFormat:@"Drop your %@ folder here\nor on the app's icon", _cfg[@"name"]]; _zone.needsDisplay = YES;
     _note.stringValue = problem ?: [NSString stringWithFormat:@"You can also put it in ~/Games/%@/Put Game Files Here.", _cfg[@"folder"]];
-    _note.textColor = problem ? [NSColor colorWithRed:1 green:0.55 blue:0.5 alpha:1] : [NSColor colorWithWhite:0.6 alpha:1];
+    _note.textColor = problem ? th_rgb(1, 0.60, 0.50) : th_dim(_st);
     __weak SetupController *me = self;
-    [self button:_primary title:@"Choose Folder..."]; _onPrimary = ^{ [me choose]; };
-    [self button:_secondary title:@"Open That Folder"]; _onSecondary = ^{ [me openInbox]; };
+    [self button:_primary title:@"Choose..."]; _onPrimary = ^{ [me choose]; };
+    [self button:_secondary title:@"Open Folder"]; _onSecondary = ^{ [me openInbox]; };
     [self button:_tertiary title:@"Quit"]; _onTertiary = ^{ [NSApp terminate:nil]; };
     if (problem) [self shot:@"problem"];
 }
@@ -188,7 +246,7 @@ static void restart_app(NSDictionary *cfg)
     BOOL dir = NO;
     if (![NSFileManager.defaultManager fileExistsAtPath:path isDirectory:&dir]) return;
     if (!dir) path = path.stringByDeletingLastPathComponent;
-    _busy = YES; _note.stringValue = @"Checking that folder..."; _note.textColor = [NSColor colorWithWhite:0.6 alpha:1];
+    _busy = YES; _note.stringValue = @"Checking that folder..."; _note.textColor = th_dim(_st);
     NSDictionary *cfg = _cfg;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         NSString *game = locate_game(path, cfg);
@@ -216,9 +274,9 @@ static void restart_app(NSDictionary *cfg)
 - (void)showFound:(NSString *)game
 {
     _found = game; _zone.hidden = YES; _bar.hidden = YES;
-    _title.stringValue = [NSString stringWithFormat:@"Found %@ %@", _cfg[@"name"], _cfg[@"version"]];
+    _title.stringValue = [NSString stringWithFormat:@"Found Version %@", _cfg[@"version"]];
     _body.stringValue = [NSString stringWithFormat:@"Set it up now? This builds the game for your Mac and takes about %@ minutes.\nYour files aren't changed.", _cfg[@"minutes"]];
-    _note.stringValue = game; _note.textColor = [NSColor colorWithWhite:0.5 alpha:1];
+    _note.stringValue = game; _note.textColor = th_dim(_st);
     __weak SetupController *me = self; NSString *inbox = _inbox;
     [self button:_primary title:@"Set Up"]; _onPrimary = ^{ [me runSetup:game]; };
     [self button:_secondary title:@"Not Now"]; _onSecondary = ^{ SetupController *s = me; if ([game hasPrefix:inbox]) s->_declined = game; [s showWaiting:nil]; };
@@ -229,7 +287,7 @@ static void restart_app(NSDictionary *cfg)
 - (void)shot:(NSString *)name
 {
     const char *dir = getenv("DS_SETUP_SHOTS"); if (!dir) return;
-    NSView *v = _win.contentView; [v displayIfNeeded];
+    NSView *v = _win.contentView; [v layoutSubtreeIfNeeded]; [v displayIfNeeded];
     NSBitmapImageRep *r = [v bitmapImageRepForCachingDisplayInRect:v.bounds]; [v cacheDisplayInRect:v.bounds toBitmapImageRep:r];
     [[r representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:[[@(dir) stringByAppendingPathComponent:name] stringByAppendingPathExtension:@"png"] atomically:YES];
 }
@@ -242,7 +300,7 @@ static void restart_app(NSDictionary *cfg)
 {
     _busy = NO; _found = nil; _bar.hidden = YES; _zone.hidden = YES;
     _title.stringValue = @"Setup Didn't Finish"; _body.stringValue = why; _note.stringValue = @"You can try again. It picks up where it stopped.";
-    _note.textColor = [NSColor colorWithWhite:0.6 alpha:1];
+    _note.textColor = th_dim(_st);
     __weak SetupController *me = self;
     [self button:_primary title:@"Start Over"]; _onPrimary = ^{ [me showWaiting:nil]; };
     [self button:_secondary title:nil]; _onSecondary = nil; [self button:_tertiary title:@"Quit"]; _onTertiary = ^{ [NSApp terminate:nil]; };
@@ -250,9 +308,9 @@ static void restart_app(NSDictionary *cfg)
 }
 - (void)runSetup:(NSString *)game
 {
-    _busy = YES; _cancelled = NO; _zone.hidden = YES; _bar.hidden = NO; _bar.doubleValue = 0; _began = [NSDate date];
-    _title.stringValue = _updating ? [NSString stringWithFormat:@"Updating %@", _cfg[@"name"]] : [NSString stringWithFormat:@"Setting Up %@", _cfg[@"name"]];
-    _body.stringValue = @"Your Mac is building the game. You can keep using it while this runs."; _note.stringValue = @"Getting ready..."; _note.textColor = [NSColor colorWithWhite:0.72 alpha:1];
+    _busy = YES; _cancelled = NO; _zone.hidden = YES; _bar.hidden = NO; _bar.doubleValue = 0; _bar.needsDisplay = YES; _began = [NSDate date];
+    _title.stringValue = _updating ? @"Updating" : @"Setting Up";
+    _body.stringValue = @"Your Mac is building the game. You can keep using it while this runs."; _note.stringValue = @"Getting ready..."; _note.textColor = th_dim(_st);
     __weak SetupController *me = self;
     [self button:_primary title:nil]; _onPrimary = nil; [self button:_secondary title:nil]; _onSecondary = nil;
     [self button:_tertiary title:@"Cancel"]; _onTertiary = ^{ SetupController *s = me; s->_cancelled = YES; if (s->_task.running) kill(-s->_task.processIdentifier, SIGTERM); };
@@ -304,7 +362,7 @@ static void restart_app(NSDictionary *cfg)
 }
 - (void)progress:(double)pct text:(NSString *)text
 {
-    _bar.doubleValue = pct;
+    _bar.doubleValue = pct; _bar.needsDisplay = YES;
     static BOOL once; if (pct > 30 && !once) { once = YES; [self shot:@"progress"]; }
     NSTimeInterval t = -_began.timeIntervalSinceNow;
     NSString *left = @"";
@@ -318,7 +376,7 @@ static void restart_app(NSDictionary *cfg)
     if (game.length && [game hasPrefix:inbox]) { for (NSString *n in [fm contentsOfDirectoryAtPath:inbox error:nil]) [fm removeItemAtPath:[inbox stringByAppendingPathComponent:n] error:nil]; restart_app(cfg); return; }
     if (!game.length) { restart_app(cfg); return; }
     _busy = YES; _bar.hidden = YES; _title.stringValue = @"All Set";
-    _body.stringValue = @"The app has its own copy of the game now.\nWould you like to remove the folder you dropped, to save space?"; _note.stringValue = game; _note.textColor = [NSColor colorWithWhite:0.5 alpha:1];
+    _body.stringValue = @"The app has its own copy of the game now.\nWould you like to remove the folder you dropped, to save space?"; _note.stringValue = game; _note.textColor = th_dim(_st);
     [self button:_primary title:@"Keep It and Play"]; _onPrimary = ^{ restart_app(cfg); };
     [self button:_secondary title:@"Move to Trash"];
     _onSecondary = ^{ [NSWorkspace.sharedWorkspace recycleURLs:@[[NSURL fileURLWithPath:game]] completionHandler:^(NSDictionary *d, NSError *e) { restart_app(cfg); }]; };
@@ -337,6 +395,8 @@ static void restart_app(NSDictionary *cfg)
 {
     NSString *installed = [_root stringByAppendingPathComponent:@"game-files"];
     [_win makeKeyAndOrderFront:nil]; [NSApp activateIgnoringOtherApps:YES];
+    [self loadPicture];
+    if (getenv("DS_SETUP_SHOTS")) dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 7 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ [self shot:@"later"]; });   /* tests: the fetched picture in place */
     if ([NSFileManager.defaultManager fileExistsAtPath:[installed stringByAppendingPathComponent:_cfg[@"exe"]]]) { _updating = YES; [self runSetup:@""]; return; }   /* the game is here: an update changed its code */
     if (!_found && !_busy) [self showWaiting:nil];
     [self shot:@"waiting"];
