@@ -4,14 +4,24 @@ Diablo II and Lord of Destruction (patch 1.14d), statically recompiled from your
 run on Metal and Core Audio, the way [dungeon-siege-macos](https://github.com/Joshspeakman/dungeon-siege-macos) and
 dungeon-siege-2-macos do for the Dungeon Siege games. No Wine, no Rosetta, no emulator.
 
-Nothing from the game is in this repository. `./install.sh` checks your copy's `Game.exe`, translates it (and the
-Bink, Smacker and Intel JPEG libraries next to it) from x86 into C, compiles that for your Mac and installs an app.
-The game folder is only read, and the app keeps loading the game's archives from it, so that folder has to stay.
+Nothing from the game is in this repository or in the download: the app is built from your own copy, on your Mac.
+There are two ways to get it:
+
+- **Download the app** ([Releases](https://github.com/Joshspeakman/diablo-2-macos/releases)): drag it to
+  Applications, open it and drop your Diablo II folder on it. It checks your copy, builds the game in a couple of
+  minutes and starts it. No developer tools, no Terminal. See [Install the app](#install-the-app).
+- **Build from source** with `./install.sh`: the same game, built by the Xcode command line tools from a clone of this
+  repository; this is also how the Nightly app is installed. See [Build from source](#build-from-source).
+
+Either way your game is copied into the app's own folder (from the same disk, an APFS clone that takes almost no
+extra space), so the folder you installed from can be deleted afterwards. It is never changed.
 
 ## State
 
-**Beta.** [Beta 3](https://github.com/Joshspeakman/diablo-2-macos/releases/tag/beta-3) adds online games without
-Battle.net, pinch zoom, updated display defaults and fixes. The game is playable natively:
+**Beta.** [Beta 4](https://github.com/Joshspeakman/diablo-2-macos/releases/tag/beta-4) is the first download you
+install by dragging: a ready-made app with its own setup window that builds the game from the folder you drop on it,
+and updates itself from this page's releases. It also brings the original Glide / 3dfx renderer on Metal (with an
+optional glow), and runtime fixes for multiplayer (connections and sockets) and sound. The game is playable natively:
 
 - the Blizzard intro and the cinematics (Bink, with sound), the title, the menus;
 - single player: new characters of every class, all five acts (their towns and waypoints), every class's skills, the
@@ -31,11 +41,12 @@ Blizzard's Battle.net itself is not available (see [Playing online](#playing-onl
 
 ## Requirements
 
-- An Apple Silicon Mac (M1 or later). `install.sh` stops on an Intel Mac. The app asks for macOS 13 or later.
-- The Xcode command line tools, for `clang`: `xcode-select --install`.
-- `python3` (the command line tools include one). The first build makes `recomp/.venv` and installs Capstone and
-  Unicorn into it with pip, so it needs the internet once.
-- git, to clone this repository and for the in-app updates (the command line tools include it).
+- An Apple Silicon Mac (M1 or later) with macOS 13 or later.
+- About 4 GB free for the app's copy of the game and the built game code (the copy is an APFS clone: on the same disk
+  it takes almost no space).
+- Only to build from source: the Xcode command line tools (`xcode-select --install`, for `clang`, `python3` and git).
+  The first build makes `recomp/.venv` and installs Capstone and Unicorn into it with pip, so it needs the internet
+  once. The downloaded app needs none of this: it carries its own compiler.
 - Diablo II for **Windows**, updated to **1.14d** (Blizzard's last classic patch). Only that `Game.exe` is accepted
   (SHA-256 `631066c1649c4ea9ffe48bf97e24c00bca1f7a6759c21150f1a79982589adaaf`): any other version is refused.
   Testing used Lord of Destruction. The installer does not require expansion archives, but a base-game-only
@@ -67,7 +78,37 @@ copying it, then check `Game.exe` against the hash above; the current download's
 Characters from Windows are `.d2s` files in `Saved Games\Diablo II` (older versions kept them in the game's `save`
 folder); see [Where things go](#where-things-go) for where they go here.
 
-## Install
+## Install the app
+
+1. Download `Diablo-II.dmg` from the newest [release](https://github.com/Joshspeakman/diablo-2-macos/releases), open
+   it and drag **Diablo II** to Applications.
+2. Open it. The first time, macOS stops it, because the app isn't signed with a paid Apple developer certificate:
+   click Done, open System Settings → Privacy & Security, scroll down and click **Open Anyway** next to Diablo II.
+   This is needed once.
+3. A setup window in the game's look asks for your game. Give it your Diablo II folder (1.14d, see
+   [Getting the game files](#getting-the-game-files)) any of three ways:
+   - drop the folder onto the window;
+   - drop it onto the app's icon (in the Dock or in Applications);
+   - or put it in `~/Games/Diablo II/Put Game Files Here` (the window shows that folder) and open the app again.
+4. The app checks `Game.exe` and the other files and says what's wrong if anything is (another version, a missing
+   archive). Then it copies the game into `~/Games/Diablo II/game-files`, builds the game's code for your Mac with
+   the compiler it carries (about 2 minutes on an M1 Pro), and opens the launch window. It offers to move the folder
+   you dropped to the Trash; it no longer needs it.
+
+That happens once. Later launches go straight to the launch window. If an update changes the game code, the next
+launch rebuilds it the same way, by itself.
+
+| What | Where (downloaded app) |
+|---|---|
+| The app | `/Applications/Diablo II.app` (or wherever you dragged it) |
+| Your game, copied | `~/Games/Diablo II/game-files` |
+| The built game code | `~/Games/Diablo II/recomp` |
+| Characters | `~/Games/Diablo II/drive_c/Users/player/Saved Games/Diablo II` |
+| Settings, log, crash reports | `~/Games/Diablo II` (`registry.txt`, `launcher.plist`, `Diablo2Native.log`, `CrashReports`) |
+
+Characters from an app built from source (or from Windows) are `.d2s` files: copy them into the Characters folder above.
+
+## Build from source
 
 Keep the clone in a path without spaces: the current compile scripts split source paths on whitespace.
 
@@ -78,15 +119,17 @@ cd diablo-2-macos
 ./install.sh --game-dir "/path/to/Diablo II"    # or names the folder (the one with Game.exe and the .mpq archives)
 ```
 
-This checks `Game.exe` (1.14d) and the other files, recompiles the game with its Bink, Smacker and JPEG libraries
-and installs **Diablo II Native** in `~/Applications`. Open it from there (Finder, Launchpad or
+This checks `Game.exe` (1.14d) and the other files, copies the game into the data folder (`game-files`; `--in-place`
+reads your folder instead), recompiles the game with its Bink, Smacker and JPEG libraries and installs **Diablo II
+Native** in `~/Applications`. Open it from there (Finder, Launchpad or
 Spotlight shows it as "Diablo II").
 
 | Option | What it does |
 |---|---|
 | `--game-dir DIR` | The Diablo II folder. Without it, the folder an app installed earlier was set up with is used again; failing that, the first folder with the right `Game.exe` among `~/Games/*/prefix/drive_c/Program Files*/Diablo II*`, `~/Games/*/drive_c/Program Files*/Diablo II*`, CrossOver bottles (`~/Library/Application Support/CrossOver/Bottles/*/drive_c/Program Files*/Diablo II*`), `~/.wine/drive_c/Program Files*/Diablo II*`, `/Applications/Diablo II*` and `~/Games/Diablo II*` |
 | `--app-dir DIR` | Where the app goes (default `~/Applications`) |
-| `--data-dir DIR` | Where settings, characters and logs go (default `~/Games/Diablo2Native`) |
+| `--data-dir DIR` | Where settings, characters, logs and the copy of the game go (default `~/Games/Diablo2Native`) |
+| `--in-place` | Read the game from the folder you name instead of copying it into the data folder (that folder then has to stay) |
 | `--nightly` | Installs **Diablo II Nightly** next to the stable app: the `nightly` branch, fetched from GitHub into `build/nightly` (this checkout is left as it is) and built from there. It shares the data folder with the stable app. Run it again to update it |
 
 Running `./install.sh` again rebuilds and reinstalls the app; the data folder is kept.
@@ -96,10 +139,12 @@ archives at install time (`recomp/tools/d2art.py`, `recomp/tools/d2_icon.m`).
 
 ## Where things go
 
+For the downloaded app, see [Install the app](#install-the-app). An app built from source:
+
 | What | Where |
 |---|---|
 | The app | `~/Applications/Diablo II Native.app` (and `Diablo II Nightly.app`) |
-| The game's data | read from your Diablo II folder, never written to |
+| The game's data | `~/Games/Diablo2Native/game-files`, the copy made at install (or your own folder with `--in-place`), never written to |
 | Characters | `~/Games/Diablo2Native/drive_c/Users/player/Saved Games/Diablo II`, where 1.14d keeps them on Windows. Copy `.d2s` files there to bring characters over |
 | The game's own settings (what it keeps in the registry on Windows) | `~/Games/Diablo2Native/registry.txt` |
 | The launch window's settings | `~/Games/Diablo2Native/launcher.plist` |
@@ -136,7 +181,7 @@ with the remastered Direct3D picture, and the original look is a few switches aw
 | Multiplayer → Type | **Internet (Game List)** (the Battle.net buttons lead to the online game list) · LAN (Classic) (the game's own TCP/IP, as it was: type the host's address) |
 | Multiplayer → Group | **Public** (anyone with this port sees your hosted games) · Private: *name* (press to set a group name: only copies with the same name see each other's games) |
 | Multiplayer → Router | **Open Port When Hosting** (asks your router, by UPnP or NAT-PMP, for TCP and UDP 4000 while you host) · Leave Router Alone (forward them yourself) |
-| Updates | shows whether a newer commit of the app's branch is on GitHub; press it to rebuild the app from it, from your own copy (see [Updating](#updating)) |
+| Updates | the downloaded app: whether a newer release is out, and pressing it installs that release; an app built from source: whether a newer commit of its branch is on GitHub, and pressing it rebuilds the app from it (see [Updating](#updating)) |
 
 The 3D graphics settings apply to both Direct3D and Glide / 3dfx. The game's own options (gamma, contrast, sound and music
 volume, light quality, ...) are in its Options menu and are kept between sessions.
@@ -233,7 +278,12 @@ on Windows; change them in the game's Options → Configure Controls. On the Mac
 
 ## Updating
 
-The launch window's **Updates** row asks GitHub, each time it opens, whether the branch the app follows has a different
+**The downloaded app** updates from this page's releases: its launch window's **Updates** row shows when a newer
+release (betas included) is out, and pressing it downloads that release and swaps it in. Your game copy, characters and
+settings are kept; if the new release changes the game code, the next launch rebuilds it from your copy. If the app
+sits somewhere it can't write to, download the new release and drag it in instead.
+
+**An app built from source:** the launch window's **Updates** row asks GitHub, each time it opens, whether the branch the app follows has a different
 commit from the one it was built from: **Diablo II Native** follows `main`, **Diablo II Nightly** follows `nightly`.
 Press it to update: the branch is fetched into a worktree of the clone you installed from (`build/stable` or
 `build/nightly`), the app is rebuilt from your own copy of the game, and a Restart button appears when it finishes. Your
@@ -255,6 +305,11 @@ The update check compares commit IDs, without checking ancestry. An app built fr
 remote branch can therefore be offered an older commit; update that build by hand.
 
 ## Uninstalling
+
+The downloaded app: move `Diablo II.app` to the Trash, and `~/Games/Diablo II` too if you don't want your characters
+(copy `drive_c/Users/player/Saved Games/Diablo II` somewhere first) and the game copy any more.
+
+Built from source:
 
 ```sh
 rm -rf ~/Applications/"Diablo II Native.app" ~/Applications/"Diablo II Nightly.app"
@@ -286,6 +341,8 @@ Your Diablo II folder was never changed.
 
 | Message or symptom | What to do |
 |---|---|
+| macOS says the app "can't be opened" or "is damaged" | It's unsigned: use System Settings → Privacy & Security → Open Anyway (see [Install the app](#install-the-app)). If it says damaged, the download was cut short: download it again |
+| The setup window says the folder isn't Diablo II 1.14d, or names a missing file | Drop the folder that holds `Game.exe` and the `.mpq` archives, updated to 1.14d |
 | `... is not Diablo II 1.14d` | Update the game to 1.14d (Blizzard's last classic patch) first. Only the original 1.14d `Game.exe` is accepted; modified executables, older patches and the Mac client are refused |
 | `the game folder has no ...` | Point `--game-dir` at a complete installation (see [Getting the game files](#getting-the-game-files)) |
 | `usage: install.sh --game-dir ...` | No installation was found in the usual places: name the folder with `--game-dir` |
