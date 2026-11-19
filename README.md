@@ -1,5 +1,7 @@
 # Diablo II for Apple Silicon Macs
 
+[![Buy me a Continue on Ko-fi](https://img.shields.io/badge/Buy_me_a_Continue_%7C_%245-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/speakerjosh)
+
 Diablo II and Lord of Destruction (patch 1.14d), statically recompiled from your own copy into native arm64 code and
 run on Metal and Core Audio, the way [dungeon-siege-macos](https://github.com/Joshspeakman/dungeon-siege-macos) and
 dungeon-siege-2-macos do for the Dungeon Siege games. No Wine, no Rosetta, no emulator.
@@ -547,8 +549,8 @@ credits: [NOTICE.md](NOTICE.md).
 
 The code in this repository is under the MIT License: [LICENSE](LICENSE).
 
-## Support
+## Insert Coin
 
-If you get some use out of this, you can buy me a coffee on Ko-fi.
+If this saved you some time (or saved you from buying something twice), you can buy me a Continue on Ko-fi. It's $5 and it keeps me building stuff like this.
 
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/speakerjosh)
+[![Buy me a Continue on Ko-fi](https://img.shields.io/badge/Buy_me_a_Continue_%7C_%245-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/speakerjosh)
