@@ -1,5 +1,7 @@
 # Diablo II for Apple Silicon Macs
 
+![Diablo II, native on Apple Silicon](media/hero.jpg)
+
 [![Buy me a Continue on Ko-fi](https://img.shields.io/badge/Buy_me_a_Continue_%7C_%245-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/speakerjosh)
 
 Diablo II and Lord of Destruction (patch 1.14d), statically recompiled from your own copy into native arm64 code and
@@ -17,6 +19,14 @@ There are two ways to get it:
 
 Either way your game is copied into the app's own folder (from the same disk, an APFS clone that takes almost no
 extra space), so the folder you installed from can be deleted afterwards. It is never changed.
+
+## Screenshots
+
+| | |
+|---|---|
+| ![The launch window](media/screenshots/screenshot-launcher.png) | ![Rogue encampment](media/screenshots/screenshot-01-rogue-encampment.jpg) |
+| ![Act 1](media/screenshots/screenshot-02-act-1.jpg) | ![Character select](media/screenshots/screenshot-03-character-select.jpg) |
+| ![Inventory](media/screenshots/screenshot-04-inventory.jpg) |  |
 
 ## State
 
