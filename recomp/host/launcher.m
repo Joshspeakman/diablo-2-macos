@@ -891,6 +891,12 @@ static BOOL update_run(NSWindow *parent, NSString *updater, NSString *branch, NS
 
 /* Shows the launch window (modal) unless DS_NO_LAUNCHER is set; returns 0 to quit, 1 to play.
  * DS_LAUNCHER_SHOT=<png> renders it to an image instead (development; DS_LAUNCHER_PAGE: a group opened). */
+static NSWindow *launch_window; static NSTimer *launch_anim;   /* the launch window, up until the game's window shows */
+void ds_launcher_game_shown(void)
+{
+    [launch_anim invalidate]; launch_anim = nil;
+    [launch_window orderOut:nil]; launch_window = nil;
+}
 int ds_launcher_run(const char *game_dir, const char *data_dir)
 {
     NSString *data = getenv("DS_LAUNCHER_HOME") ? @(getenv("DS_LAUNCHER_HOME")) : @(data_dir), *plistPath = [data stringByAppendingPathComponent:@"launcher.plist"];
@@ -1057,9 +1063,10 @@ int ds_launcher_run(const char *game_dir, const char *data_dir)
     if (getenv("DS_LAUNCHER_AUTOPLAY") || getenv("DS_LAUNCHER_PLAY"))   /* testing: Play after a moment, as if clicked */
         [[NSRunLoop currentRunLoop] addTimer:[NSTimer timerWithTimeInterval:1.5 repeats:NO block:^(NSTimer *tm) { if (wv.onPlay) wv.onPlay(); }] forMode:NSRunLoopCommonModes];
     [NSApp runModalForWindow:w];
-    [anim invalidate];
-    [w orderOut:nil];
-    if (!result) return 0;
+    if (!result) { [anim invalidate]; [w orderOut:nil]; return 0; }
+    /* Play: the window stays up, taking no more input, until the game's window is presented (main.m calls
+     * ds_launcher_game_shown): hidden before then, the app could lose its activation and its Space to another */
+    v.onPlay = nil; v.onQuit = nil; w.ignoresMouseEvents = YES; [w makeFirstResponder:nil]; launch_window = w; launch_anim = anim;
     NSDictionary *values = chosen(rows);
     [values writeToFile:plistPath atomically:YES];
     apply(values);

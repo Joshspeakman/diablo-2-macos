@@ -536,6 +536,24 @@ static void capture(int on)
  * notch a full-screen window sits below the camera housing, so the screen size given to the game leaves that band out. */
 static void enter_fullscreen(void) { if (win && !(win.styleMask & NSWindowStyleMaskFullScreen)) [win toggleFullScreen:nil]; }
 static void leave_fullscreen(void) { if (win && (win.styleMask & NSWindowStyleMaskFullScreen)) [win toggleFullScreen:nil]; }
+/* The game's window is presented once the app's activation has finished (activation is asynchronous: full screen or
+ * the screen-sized window before it can land on another Space, out of sight), and only then does the launch window,
+ * kept up until now so the app keeps its activation and its Space, go (ds_launcher_game_shown, the launcher). */
+static int awaiting_game_activation;
+static void check_shown(void);
+static void finish_game_presentation(void)
+{
+    if (!awaiting_game_activation || !win || !NSApp.active) return;
+    awaiting_game_activation = 0;
+    [win makeKeyAndOrderFront:nil]; capture(1);
+    if (borderless()) {   /* a screen-sized window, the Dock and menu bar hidden: around the notch, or DS_BORDERLESS */
+        [NSApp setPresentationOptions:NSApplicationPresentationHideDock | NSApplicationPresentationHideMenuBar];
+        [win setFrame:(win.screen ?: NSScreen.mainScreen).frame display:YES];
+    }
+    else enter_fullscreen();
+    check_shown();
+    void ds_launcher_game_shown(void); ds_launcher_game_shown();
+}
 static void window_created(uint32_t hwnd, int x, int y, int w, int h, uint32_t style)
 {
     (void)x; (void)y; (void)w; (void)h; (void)style;
@@ -557,6 +575,7 @@ static void window_created(uint32_t hwnd, int x, int y, int w, int h, uint32_t s
         GameView *v = [[GameView alloc] initWithFrame:f]; v.wantsLayer = YES;
         win.contentView = v; [win makeFirstResponder:v];
         win.collectionBehavior = NSWindowCollectionBehaviorFullScreenPrimary;
+        if (!test_mode && !lab_mode) win.collectionBehavior |= NSWindowCollectionBehaviorMoveToActiveSpace;
         [win setLevel:NSNormalWindowLevel];
     });
 }
@@ -581,18 +600,14 @@ static void window_changed(uint32_t hwnd, int x, int y, int w, int h, int visibl
         if (!win) return;
         if (visible && !win.visible) {
             if (test_mode) [win orderBack:nil];
-            else if (lab_mode) { [win makeKeyAndOrderFront:nil]; [NSApp activateIgnoringOtherApps:YES]; }
+            else if (lab_mode) { [win makeKeyAndOrderFront:nil]; [NSApp activateIgnoringOtherApps:YES]; void ds_launcher_game_shown(void); ds_launcher_game_shown(); }
             else {
-                [win makeKeyAndOrderFront:nil]; [NSApp activateIgnoringOtherApps:YES]; capture(1);
-                if (borderless()) {   /* a screen-sized window, the Dock and menu bar hidden: around the notch, or DS_BORDERLESS */
-                    [NSApp setPresentationOptions:NSApplicationPresentationHideDock | NSApplicationPresentationHideMenuBar];
-                    [win setFrame:(win.screen ?: NSScreen.mainScreen).frame display:YES];
-                }
-                else enter_fullscreen();
-                check_shown();
+                awaiting_game_activation = 1;
+                [win makeKeyAndOrderFront:nil]; [NSApp activateIgnoringOtherApps:YES];
+                dispatch_async(dispatch_get_main_queue(), ^{ finish_game_presentation(); });   /* (already active: no notification comes) */
             }
         }
-        else if (!visible && win.visible) { leave_fullscreen(); [win orderOut:nil]; capture(0); }
+        else if (!visible) { awaiting_game_activation = 0; if (win.visible) { leave_fullscreen(); [win orderOut:nil]; capture(0); } }
     });
 }
 
@@ -720,7 +735,7 @@ static void game_list_open(int open)
 
 @interface AppDelegate : NSObject <NSApplicationDelegate> @end
 @implementation AppDelegate
-- (void)applicationDidBecomeActive:(NSNotification *)n { (void)n; if (test_mode) return; if (winlog()) fprintf(stderr, "win: app active\n"); if (win.visible && !lab_mode) capture(1); post(0x1c, 1, 0);
+- (void)applicationDidBecomeActive:(NSNotification *)n { (void)n; dispatch_async(dispatch_get_main_queue(), ^{ finish_game_presentation(); }); if (test_mode) return; if (winlog()) fprintf(stderr, "win: app active\n"); if (win.visible && !lab_mode) capture(1); post(0x1c, 1, 0);
                                                                  post(0x112, 0xf120, 0); }   /* SC_RESTORE: the game minimized itself when it lost the focus */
 - (void)applicationDidResignActive:(NSNotification *)n { (void)n; if (test_mode) return; if (winlog()) fprintf(stderr, "win: app inactive\n"); capture(0); post(0x1c, 0, 0); }
 - (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)s { (void)s; ds_trace_save(&frame_trace); return NSTerminateNow; }
