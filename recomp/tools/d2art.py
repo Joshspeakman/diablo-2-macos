@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """d2art.py <Diablo II folder> <out folder>: the launch window's art, made at install time from the player's own game
 archives (nothing from the game is kept in this project): the main menu's backdrop (backdrop.png, 800x600) and the
-Diablo II logo (logo.png), decoded from the front end's DC6 sprites with the Act 1 palette."""
-import os, struct, sys, zlib
+Diablo II logo (logo.png), decoded from the front end's DC6 sprites with the Act 1 palette; and, when ffmpeg is
+installed, frames of the game's cinematics (the Bink movies in d2video.mpq and d2xvideo.mpq): scene-<n>.jpg, the
+backdrop's slides, and portrait.jpg, the Dark Wanderer walking out of the fire, for the framed portrait."""
+import os, shutil, struct, subprocess, sys, tempfile, zlib
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mpq
 
@@ -53,6 +55,41 @@ def write_png(path, rows):
     open(path, 'wb').write(b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 6, 0, 0, 0)) +
                            chunk(b'IDAT', zlib.compress(raw, 6)) + chunk(b'IEND', b''))
 
+# (movie, where in it as a fraction of its length) -> scene-<n>.jpg in this order; the portrait: (movie, at, crop x 0..1)
+SCENES = [("d2intro640x292", 4 / 9), ("Act02start640x292", 1 / 9), ("Act03start640x292", 6 / 9), ("Act03start640x292", 4 / 9),
+          ("d2intro640x292", 8 / 9), ("Act04end640x292", 1 / 9), ("D2x_Intro_640x292", 6 / 9), ("Act02start640x292", 3 / 9),
+          ("d2intro640x292", 7 / 9), ("Act03start640x292", 8 / 9), ("D2x_Intro_640x292", 1 / 9), ("Act04start640x292", 8 / 9)]
+PORTRAIT = ("d2intro640x292", 8 / 9, 0.57)
+def cinematics(game, out):
+    ffmpeg = shutil.which("ffmpeg") or next((p for p in ("/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg") if os.path.exists(p)), None)
+    if not ffmpeg: return
+    movies = {}
+    for n in ("d2video.mpq", "d2xvideo.mpq"):
+        p = os.path.join(game, n)
+        if not os.path.exists(p): continue
+        a = mpq.MPQ(p)
+        for name in a.names():
+            if name.lower().endswith("640x292.bik"): movies[name.split("\\")[-1][:-4].lower()] = (a, name)
+    tmp = tempfile.mkdtemp(prefix="d2art."); got = {}
+    def frame(movie, at, dest, vf):
+        if os.path.exists(dest) or movie.lower() not in movies: return
+        if movie not in got:
+            a, name = movies[movie.lower()]; got[movie] = os.path.join(tmp, movie + ".bik")
+            with open(got[movie], "wb") as f: f.write(a.read(name))
+        d = subprocess.run([ffmpeg.replace("ffmpeg", "ffprobe"), "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", got[movie]], capture_output=True, text=True)
+        try: t = float(d.stdout.strip()) * at
+        except ValueError: return
+        subprocess.run([ffmpeg, "-v", "error", "-y", "-ss", "%.2f" % t, "-i", got[movie], "-frames:v", "1", "-vf", vf, "-q:v", "2", dest + ".part.jpg"], capture_output=True)
+        if os.path.exists(dest + ".part.jpg") and os.path.getsize(dest + ".part.jpg") > 15000: os.replace(dest + ".part.jpg", dest)
+        elif os.path.exists(dest + ".part.jpg"): os.remove(dest + ".part.jpg")
+    try:
+        for k, (m, at) in enumerate(SCENES):     # 640x292, blown up for the window and sharpened
+            frame(m, at, os.path.join(out, "scene-%d.jpg" % (k + 1)), "scale=1600:730:flags=lanczos,unsharp=5:5:0.8")
+        m, at, cx = PORTRAIT                     # a 3:4 cut round the Wanderer
+        frame(m, at, os.path.join(out, "portrait.jpg"), "crop=219:292:(iw-219)*%.2f:0,scale=600:800:flags=lanczos,unsharp=5:5:0.8" % cx)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
 def main(game, out):
     os.makedirs(out, exist_ok=True)
     archives = [mpq.MPQ(os.path.join(game, n)) for n in ('d2exp.mpq', 'd2data.mpq') if os.path.exists(os.path.join(game, n))]
@@ -76,6 +113,7 @@ def main(game, out):
     for black, fire in halves:
         blit(c, black, x, h - black[1], pal); blit(c, fire, x, h - fire[1], pal, 'add'); x += max(black[0], fire[0])
     write_png(os.path.join(out, 'logo.png'), c)
+    cinematics(game, out)
 
 if __name__ == '__main__':
     exe = os.path.join(sys.argv[1], 'Game.exe')

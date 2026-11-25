@@ -156,7 +156,8 @@ cat > "$A/Contents/Info.plist" <<PLIST
   <key>NSLocalNetworkUsageDescription</key><string>Diablo II hosts and joins TCP/IP games on your local network.</string>
 </dict></plist>
 PLIST
-# the launch window's art: the main menu's backdrop and logo, decoded from the player's own archives
+# the launch window's art: the main menu's backdrop and logo, decoded from the player's own archives, and frames of its
+# cinematics (with ffmpeg, when it is installed)
 "$HERE/recomp/.venv/bin/python" "$HERE/recomp/tools/d2art.py" "$GAME" "$DATA/art" >/dev/null 2>&1 \
   && echo "== the launch window's art: from your game's archives" || echo "   (the launch window's art couldn't be read; it shows a plain title)"
 # the icon: that logo on the backdrop (tools/d2_icon.m; Nightly with its band), every size macOS asks for. The game's

@@ -47,7 +47,8 @@
     "CoreGraphics",
     "CoreFoundation",
     "AudioToolbox",
-    "CoreImage"
+    "CoreImage",
+    "GameController"
   ],
   "host_cflags": [],
   "rt_cflags": [],

@@ -1,7 +1,7 @@
 // The launch window: its settings reach the runtime (D2_RENDERER, D2_PERSPECTIVE, D2_RESOLUTION, D2_TEXTURES, D2_FPS, D2_WIDTH, DSR_FILTER,
 // DS_NOTCH) and are remembered in
 // launcher.plist; it draws with the game's art from <data>/art (or without it) at the expected size.
-//   clang -fobjc-arc -framework AppKit -framework Metal -framework ImageIO -lz recomp/tests/launcher_test.m -o /tmp/launcher_test && /tmp/launcher_test [art folder]
+//   clang -fobjc-arc -framework AppKit -framework Metal -framework ImageIO -framework QuartzCore -framework GameController -lz recomp/tests/launcher_test.m -o /tmp/launcher_test && /tmp/launcher_test [art folder]
 #include "../host/launcher.m"
 
 static int fails;
@@ -66,11 +66,11 @@ int main(int argc, char **argv)
                 if (page >= 0) setenv("DS_LAUNCHER_PAGE", "0", 1); else unsetenv("DS_LAUNCHER_PAGE");
                 CHECK(ds_launcher_run("/nonexistent", dir.UTF8String) == 0);
                 NSImage *img = [[NSImage alloc] initWithContentsOfFile:shot];
-                CHECK(img != nil); CHECK(img.size.width == 780 && img.size.height == 620);
+                CHECK(img != nil); CHECK(img.size.width == 980 && img.size.height == 660);
                 if (pass && page < 0) {   /* the art is drawn: the window is not the plain fallback colour at the top centre (the logo) */
                     NSBitmapImageRep *rep = [[NSBitmapImageRep alloc] initWithData:[NSData dataWithContentsOfFile:shot]];
-                    CGFloat px = rep.pixelsWide / 780.0, sum = 0; int n = 0;      /* the logo's area (its flames), averaged */
-                    for (int y = 30; y < 160; y += 4) for (int x = 230; x < 550; x += 4) {
+                    CGFloat px = rep.pixelsWide / 980.0, sum = 0; int n = 0;      /* the logo's area (its flames), averaged */
+                    for (int y = 50; y < 160; y += 4) for (int x = 110; x < 490; x += 4) {
                         CGFloat r = 0, g = 0, b = 0, a = 0;
                         [[[rep colorAtX:(NSInteger)(x * px) y:(NSInteger)(y * px)] colorUsingColorSpace:NSColorSpace.sRGBColorSpace] getRed:&r green:&g blue:&b alpha:&a];
                         sum += r + g + b; n++;
